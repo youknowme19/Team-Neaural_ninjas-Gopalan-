@@ -132,6 +132,16 @@ html, body {
   100% { transform: translateY(-20px) scale(0.96); }
 }
 
+@keyframes blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.6; transform: scale(0.85); }
+}
+
 /* Layout container */
 .container-1200 {
   max-width: 1200px;
@@ -153,8 +163,13 @@ html, body {
   font-weight: 600;
   cursor: pointer;
   transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
-  text-decoration: none;
+  text-decoration: none !important;
   border: 1px solid transparent;
+  color: inherit;
+}
+
+a.pill-button {
+  text-decoration: none !important;
 }
 
 .pill-button-primary {
@@ -283,6 +298,74 @@ html, body {
   .pill-button {
     width: 100% !important;
     padding: 14px 20px !important;
+  }
+
+  .nav-floating-container {
+    height: auto !important;
+    padding: 12px 16px !important;
+    flex-wrap: wrap !important;
+    gap: 12px !important;
+    border-radius: 24px !important;
+  }
+
+  .nav-center-pill {
+    order: 3 !important;
+    width: 100% !important;
+    justify-content: center !important;
+  }
+
+  .nav-center-pill button {
+    flex: 1 !important;
+    justify-content: center !important;
+  }
+
+  .nav-right-actions {
+    gap: 10px !important;
+  }
+
+  .nav-version-tag {
+    display: none !important;
+  }
+
+  .download-grid-2col {
+    grid-template-columns: 1fr !important;
+  }
+}
+
+/* ==========================================================================
+   Monochrome Premium Footer
+   ========================================================================== */
+.footer-nav-link {
+  color: #D4D4D4 !important;
+  opacity: 0.82;
+  text-decoration: none !important;
+  font-size: 14px;
+  font-weight: 500;
+  transition: color 0.2s ease, opacity 0.2s ease;
+}
+
+.footer-nav-link:hover {
+  color: #FFFFFF !important;
+  opacity: 1;
+}
+
+@media (max-width: 768px) {
+  .footer-top-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 24px !important;
+    margin-bottom: 36px !important;
+  }
+
+  .footer-nav-links {
+    flex-wrap: wrap !important;
+    gap: 16px 24px !important;
+  }
+
+  .footer-copyright-row {
+    flex-direction: column !important;
+    align-items: flex-start !important;
+    gap: 10px !important;
   }
 }
 

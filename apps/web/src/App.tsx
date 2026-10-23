@@ -1,18 +1,18 @@
+'use client';
+
 import { useState } from 'react';
-import { 
-  Sparkles, 
-  Download, 
-  Mic, 
-  Radio, 
-  CheckCircle2, 
-  Copy, 
-  Check, 
-  Play, 
-  RotateCcw, 
-  Volume2, 
-  Zap,
+import {
+  Sparkles,
+  Download,
+  Mic,
+  Radio,
+  CheckCircle2,
+  Copy,
+  Check,
+  Play,
+  RotateCcw,
+  Volume2,
   Wand2,
-  Layers,
   Globe2,
   Sliders,
   CheckCheck,
@@ -26,16 +26,12 @@ import {
   Cpu,
   Keyboard,
   Gauge,
-  Feather,
   ShieldAlert,
-  ChevronDown,
-  HardDrive,
   Activity,
-  Terminal,
-  Lock,
-  ArrowRight
+  ArrowRight,
 } from 'lucide-react';
-import { LiveSpeakLogo } from '../components/LiveSpeakLogo';
+import { LiveSpeakLogo, LiveSpeakMark } from '../components/LiveSpeakLogo';
+import { SquishyPricing } from '../components/ui/squishy-pricing';
 import './index.css';
 
 export function App() {
@@ -48,7 +44,6 @@ export function App() {
   const [engineModel, setEngineModel] = useState<'tiny.en' | 'base.en'>('tiny.en');
   const [toneMode, setToneMode] = useState<'formal' | 'casual' | 'very-casual'>('casual');
   const [activePlatform, setActivePlatform] = useState<'mac' | 'win'>('mac');
-  const [openFaq, setOpenFaq] = useState<number | null>(0);
 
   const rawSnippet = [
     { text: "So ", isFiller: false },
@@ -84,7 +79,7 @@ export function App() {
   };
 
   return (
-    <div style={{ position: 'relative', minHeight: '100vh', paddingBottom: '96px' }}>
+    <div style={{ position: 'relative', minHeight: '100vh' }}>
       {/* Background Pastel Gradient Blobs */}
       <div className="blob-container">
         <div className="blob blob-peach" />
@@ -92,59 +87,39 @@ export function App() {
         <div className="blob blob-mint" />
       </div>
 
-      {/* 1. Announcement Bar */}
-      <aside aria-label="Announcement" style={{ 
-        position: 'relative', 
-        zIndex: 20, 
-        background: 'rgba(255, 255, 255, 0.75)', 
-        backdropFilter: 'blur(12px)',
-        borderBottom: '1px solid rgba(28, 25, 23, 0.05)',
-        padding: '10px 16px',
-        textAlign: 'center',
-        fontSize: '13px',
-        fontWeight: 500,
-        color: 'var(--text-secondary)'
-      }}>
-        <div style={{ display: 'inline-flex', alignItems: 'center', gap: '8px' }}>
-          <span style={{ 
-            background: 'var(--pastel-mint)', 
-            color: '#0E7044', 
-            padding: '2px 8px', 
-            borderRadius: '9999px', 
-            fontSize: '11px', 
-            fontWeight: 700, 
-            letterSpacing: '0.04em' 
-          }}>
-            V0.1.0 RELEASE
-          </span>
-          <span>Zero cloud reliance · Sub-second token streaming · Hardware accelerated on M-Series & Windows</span>
-          <a href="#download" style={{ color: 'var(--text-primary)', fontWeight: 700, textDecoration: 'underline', marginLeft: '4px' }}>
-            Get early access →
-          </a>
-        </div>
-      </aside>
-
-      {/* 2. Sticky Navbar */}
+      {/* Floating Navbar */}
       <header style={{ 
         position: 'sticky', 
-        top: 0, 
+        top: '16px', 
         zIndex: 30, 
-        backdropFilter: 'blur(16px)', 
-        backgroundColor: 'rgba(250, 248, 244, 0.82)',
-        borderBottom: '1px solid rgba(28, 25, 23, 0.06)',
-        transition: 'all 0.2s ease'
+        maxWidth: '1200px',
+        margin: '0 auto',
+        padding: '0 16px',
+        width: '100%'
       }}>
-        <div className="container-1200" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '76px' }}>
+        <div className="nav-floating-container" style={{
+          display: 'flex', 
+          alignItems: 'center', 
+          justifyContent: 'space-between', 
+          height: '72px',
+          padding: '0 24px',
+          backdropFilter: 'blur(16px)', 
+          backgroundColor: 'rgba(250, 248, 244, 0.88)',
+          border: '1.5px solid #000000',
+          borderRadius: '9999px',
+          boxShadow: '0 12px 32px -8px rgba(0, 0, 0, 0.08), 0 4px 12px -2px rgba(0, 0, 0, 0.04)',
+          transition: 'all 0.2s ease'
+        }}>
           {/* Brand Logo */}
           <a href="#" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
-            <LiveSpeakLogo size={32} animate="hover" color="#1C1917" textColor="#1C1917" />
+            <LiveSpeakLogo size={32} animate="always" color="#1C1917" textColor="#1C1917" />
             <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '6px', background: 'var(--pastel-mint)', padding: '2px 8px', borderRadius: '9999px' }}>
               Edge
             </span>
           </a>
 
           {/* Centered Pill Toggle: Dictation | Live Events */}
-          <nav aria-label="Product modes" style={{ 
+          <nav className="nav-center-pill" aria-label="Product modes" style={{ 
             background: '#FFFFFF', 
             padding: '4px', 
             borderRadius: 'var(--radius-pill)', 
@@ -196,8 +171,8 @@ export function App() {
           </nav>
 
           {/* Right Action: Download Pill */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
-            <span style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 500 }}>
+          <div className="nav-right-actions" style={{ display: 'flex', alignItems: 'center', gap: '16px' }}>
+            <span className="nav-version-tag" style={{ fontSize: '14px', color: 'var(--text-muted)', fontWeight: 500 }}>
               v0.1.0 • macOS & Win
             </span>
             <a 
@@ -214,19 +189,7 @@ export function App() {
 
       {/* 3. Hero Section */}
       <main className="container-1200" style={{ paddingTop: '64px', textAlign: 'center' }}>
-        {/* Eyebrow Pill */}
-        <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '28px' }}>
-          <div className="eyebrow-pill">
-            <span style={{ 
-              width: '8px', 
-              height: '8px', 
-              borderRadius: '50%', 
-              backgroundColor: '#10B981',
-              boxShadow: '0 0 0 3px rgba(16, 185, 129, 0.2)' 
-            }} />
-            <span>On-device · No cloud · Under 200 MB</span>
-          </div>
-        </div>
+
 
         {/* Hero Headline with Clean Sans + Serif-Italic Accent */}
         <h1 style={{ 
@@ -529,25 +492,9 @@ export function App() {
           </div>
         </section>
 
-        {/* =========================================================================
-            SCREEN 2: Speed + Logo Strip
-            - "Built on open foundations" tech logo row
-            - Section: "Captions in under a second."
-            - Side-by-side cards: "Typing 45 wpm" vs "LiveSpeak" with live waveform
-            - Three stat chips
-           ========================================================================= */}
-
-
-
-        {/* 2. Speed Section: "Captions in under a second." */}
+        {/* Section: Speed Comparison */}
         <section aria-label="Speed performance comparison" style={{ marginTop: '104px', textAlign: 'center' }}>
-          {/* Eyebrow Pill */}
-          <div style={{ display: 'flex', justifyContent: 'center', marginBottom: '20px' }}>
-            <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-              <Zap size={14} color="#EA580C" />
-              <span>Real-Time Sliding Window Architecture</span>
-            </div>
-          </div>
+
 
           {/* Section Headline with Serif-Italic Accent */}
           <h2 style={{ 
@@ -840,27 +787,10 @@ export function App() {
           </div>
         </section>
 
-
-        {/* =========================================================================
-            SCREEN 3: How it Works
-            - Two-column layout
-            - Left: Large sticky visual panel showing live interactive transcript demo
-            - Right: Three stacked text blocks:
-              1. "Speak naturally"
-              2. "Edits as you speak"
-              3. "Use it anywhere"
-              with a thin vertical progress line connecting them
-           ========================================================================= */}
+        {/* Section: How It Works */}
         <section aria-label="How it works" style={{ marginTop: '128px', textAlign: 'left' }}>
           {/* Eyebrow & Headline Header */}
           <div style={{ textAlign: 'center', marginBottom: '64px' }}>
-            <div style={{ display: 'inline-flex', justifyContent: 'center', marginBottom: '20px' }}>
-              <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-                <Layers size={14} color="#7C3AED" />
-                <span>Zero-Friction Workflow</span>
-              </div>
-            </div>
-
             <h2 style={{ 
               fontSize: '52px', 
               fontWeight: 800, 
@@ -1384,25 +1314,9 @@ export function App() {
           </div>
         </section>
 
-        {/* =========================================================================
-            SCREEN 4: Live Events
-            - Section: "Caption any event, for everyone in the room."
-            - Three tabs:
-              1. "System audio"
-              2. "OBS overlay"
-              3. "QR audience mode"
-            - OBS canvas mock with transparent subtitles
-            - Phone mockup with a QR code card
-           ========================================================================= */}
+        {/* Section: Live Events */}
         <section aria-label="Live event broadcasting" style={{ marginTop: '144px', textAlign: 'center' }}>
           {/* Eyebrow & Headline */}
-          <div style={{ display: 'inline-flex', justifyContent: 'center', marginBottom: '20px' }}>
-            <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-              <Radio size={14} color="#059669" />
-              <span>Broadcast Architecture · 0-Driver WASAPI & ScreenCaptureKit</span>
-            </div>
-          </div>
-
           <h2 style={{ 
             fontSize: '52px', 
             fontWeight: 800, 
@@ -1762,23 +1676,9 @@ export function App() {
           </div>
         </section>
 
-        {/* =========================================================================
-            SCREEN 5: Feature Bento
-            - 2x2 bento grid with four tiles:
-              1. Engine toggle (tiny.en / base.en)
-              2. Formal / Casual / Very casual toggle
-              3. Hotkey keycaps (Cmd+Shift+Space / Ctrl+Shift+Space)
-              4. Hardware acceleration chips (CoreML Apple Neural Engine & DirectML DirectX 12)
-           ========================================================================= */}
+        {/* Section: Feature Bento Grid */}
         <section aria-label="Feature bento grid" style={{ marginTop: '144px', textAlign: 'center' }}>
           {/* Eyebrow & Headline */}
-          <div style={{ display: 'inline-flex', justifyContent: 'center', marginBottom: '20px' }}>
-            <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-              <Feather size={14} color="#C2410C" />
-              <span>Tailored Precision · Zero Cloud Overhead</span>
-            </div>
-          </div>
-
           <h2 style={{ 
             fontSize: '52px', 
             fontWeight: 800, 
@@ -2267,25 +2167,8 @@ export function App() {
           </div>
         </section>
 
-        {/* =========================================================================
-            SCREEN 6: Privacy, Specs, Downloads, FAQ, Final CTA & Footer
-            1. Privacy section with "Network activity: 0 outbound connections" panel
-            2. Row of five stat cards
-            3. Three OS download cards (macOS Apple Silicon, Windows x64/ARM64, Linux)
-            4. Accordion FAQ
-            5. Final pastel gradient CTA
-            6. Footer with huge faint wordmark
-           ========================================================================= */}
-
-        {/* 1. Privacy Section with 0 Outbound Connections Panel */}
+        {/* Section: Privacy, Stats & Download */}
         <section aria-label="Privacy and security" style={{ marginTop: '144px', textAlign: 'center' }}>
-          <div style={{ display: 'inline-flex', justifyContent: 'center', marginBottom: '20px' }}>
-            <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-              <Lock size={14} color="#059669" />
-              <span>Air-Gapped Compliance · Zero Analytics</span>
-            </div>
-          </div>
-
           <h2 style={{ 
             fontSize: '52px', 
             fontWeight: 800, 
@@ -2458,15 +2341,8 @@ export function App() {
             ))}
           </div>
 
-          {/* 3. Three OS Download Cards */}
+          {/* 3. OS Download Cards */}
           <div id="download" style={{ textAlign: 'center', marginBottom: '128px' }}>
-            <div style={{ display: 'inline-flex', justifyContent: 'center', marginBottom: '20px' }}>
-              <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-                <HardDrive size={14} color="#7C3AED" />
-                <span>Single Executable Installer · No Node/Python Required</span>
-              </div>
-            </div>
-
             <h2 style={{ 
               fontSize: '52px', 
               fontWeight: 800, 
@@ -2489,11 +2365,11 @@ export function App() {
               Zero dependencies. Download the standalone bundle compiled specifically for your operating system's hardware accelerator.
             </p>
 
-            <div style={{ 
+            <div className="download-grid-2col" style={{ 
               display: 'grid', 
-              gridTemplateColumns: 'repeat(3, 1fr)', 
+              gridTemplateColumns: 'repeat(2, 1fr)', 
               gap: '28px', 
-              maxWidth: '1160px', 
+              maxWidth: '880px', 
               margin: '0 auto',
               textAlign: 'left'
             }}>
@@ -2606,141 +2482,15 @@ export function App() {
                   Download .exe (Windows)
                 </a>
               </div>
-
-              {/* Linux Card */}
-              <div className="rounded-card" style={{ 
-                padding: '36px', 
-                background: '#FFFFFF', 
-                border: '1px solid var(--border-medium)',
-                boxShadow: 'var(--shadow-card)',
-                display: 'flex',
-                flexDirection: 'column',
-                justifyContent: 'space-between'
-              }}>
-                <div>
-                  <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '24px' }}>
-                    <span style={{ fontSize: '28px' }}>🐧</span>
-                    <span style={{ 
-                      fontSize: '11px', 
-                      fontWeight: 700, 
-                      color: '#047857', 
-                      background: 'var(--pastel-mint-soft)', 
-                      padding: '4px 10px', 
-                      borderRadius: 'var(--radius-pill)' 
-                    }}>
-                      OPEN SOURCE
-                    </span>
-                  </div>
-
-                  <h3 style={{ fontSize: '24px', fontWeight: 800, color: 'var(--text-primary)', marginBottom: '8px' }}>
-                    Linux AppImage / Deb
-                  </h3>
-                  <p style={{ fontSize: '14px', color: 'var(--text-secondary)', lineHeight: 1.5, marginBottom: '20px' }}>
-                    Bare-metal compilation for Ubuntu, Fedora, Arch with PipeWire audio capture.
-                  </p>
-
-                  <ul style={{ listStyle: 'none', padding: 0, margin: '0 0 28px', fontSize: '13px', color: 'var(--text-muted)', display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <CheckCircle2 size={14} color="#10B981" /> Portable AppImage & .deb (179 MB)
-                    </li>
-                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <CheckCircle2 size={14} color="#10B981" /> PipeWire / ALSA loopback support
-                    </li>
-                    <li style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-                      <CheckCircle2 size={14} color="#10B981" /> glibc 2.31+ compatible
-                    </li>
-                  </ul>
-                </div>
-
-                <a 
-                  href="#download-linux" 
-                  className="pill-button pill-button-secondary"
-                  style={{ width: '100%', padding: '14px', textAlign: 'center' }}
-                >
-                  <Terminal size={16} />
-                  Download AppImage (Linux)
-                </a>
-              </div>
             </div>
           </div>
 
-          {/* 4. Accordion FAQ */}
-          <div style={{ maxWidth: '860px', margin: '0 auto 128px', textAlign: 'left' }}>
-            <div style={{ textAlign: 'center', marginBottom: '48px' }}>
-              <div style={{ display: 'inline-flex', justifyContent: 'center', marginBottom: '16px' }}>
-                <div className="eyebrow-pill" style={{ background: '#FFFFFF', borderColor: 'rgba(28, 25, 23, 0.08)' }}>
-                  <span>Frequently Answered Questions</span>
-                </div>
-              </div>
-
-              <h2 style={{ fontSize: '42px', fontWeight: 800, letterSpacing: '-0.03em', color: 'var(--text-primary)' }}>
-                Everything you need to <span className="serif-accent" style={{ color: '#44403C' }}>know.</span>
-              </h2>
-            </div>
-
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
-              {[
-                {
-                  q: "How does LiveSpeak achieve sub-second live captioning without pauses?",
-                  a: "Unlike traditional speech engines that wait for a speaker to stop talking before processing (Voice Activity Detection slicing), LiveSpeak uses an overlapping 3-second sliding window stepped forward every 500 milliseconds. This emits tentative [PARTIAL] tokens within 350ms and locks in finalized words as speech resolves."
-                },
-                {
-                  q: "Does any audio ever leave my computer?",
-                  a: "Never. All inference runs directly on your CPU/NPU using whisper.cpp sidecars and local quantized GGUF weights. The binary doesn't even contain network endpoints for sending audio data. It can operate in complete airplane mode or in disconnected enterprise environments."
-                },
-                {
-                  q: "How does system audio capture work without third-party drivers?",
-                  a: "On macOS, we integrate directly with Apple's ScreenCaptureKit API to record application or global system audio without installing virtual drivers like BlackHole. On Windows, we bind natively to the WASAPI loopback device in shared audio render mode."
-                },
-                {
-                  q: "How does the OBS and Audience QR mode work?",
-                  a: "LiveSpeak includes a lightweight Tokio WebSocket server running on port 8080. Streamers point OBS to http://localhost:8080/broadcast for a transparent subtitle browser source. In-person attendees scan a QR code resolving the host's local IP to follow live synchronized captions on their phones without installing any software."
-                },
-                {
-                  q: "What are the minimum hardware requirements?",
-                  a: "Any Apple Silicon Mac (M1 through M4) with 8GB RAM, or any modern Windows 10/11 machine with an Intel/AMD 64-bit CPU or Snapdragon ARM64 processor. The entire application runs comfortably in under 200MB of RAM."
-                }
-              ].map((faq, index) => {
-                const isOpen = openFaq === index;
-                return (
-                  <div 
-                    key={index}
-                    className="rounded-card"
-                    style={{ 
-                      padding: '24px 28px', 
-                      background: '#FFFFFF', 
-                      border: '1px solid var(--border-medium)',
-                      cursor: 'pointer',
-                      transition: 'all 0.2s ease'
-                    }}
-                    onClick={() => setOpenFaq(isOpen ? null : index)}
-                  >
-                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
-                      <h4 style={{ fontSize: '17px', fontWeight: 700, color: 'var(--text-primary)', margin: 0 }}>
-                        {faq.q}
-                      </h4>
-                      <ChevronDown 
-                        size={18} 
-                        color="var(--text-muted)" 
-                        style={{ 
-                          transform: isOpen ? 'rotate(180deg)' : 'rotate(0deg)', 
-                          transition: 'transform 0.2s ease' 
-                        }} 
-                      />
-                    </div>
-
-                    {isOpen && (
-                      <p style={{ marginTop: '16px', fontSize: '15px', color: 'var(--text-secondary)', lineHeight: 1.65, paddingTop: '16px', borderTop: '1px solid var(--border-subtle)' }}>
-                        {faq.a}
-                      </p>
-                    )}
-                  </div>
-                );
-              })}
-            </div>
+          {/* Pricing Plans */}
+          <div style={{ margin: '0 auto 128px' }}>
+            <SquishyPricing />
           </div>
 
-          {/* 5. Final Pastel Gradient CTA */}
+          {/* Final CTA Banner */}
           <div style={{ 
             maxWidth: '1160px', 
             margin: '0 auto 128px', 
@@ -2753,10 +2503,6 @@ export function App() {
             overflow: 'hidden'
           }}>
             <div style={{ maxWidth: '720px', margin: '0 auto', position: 'relative', zIndex: 1 }}>
-              <div style={{ display: 'inline-flex', padding: '6px 16px', background: 'rgba(255,255,255,0.7)', backdropFilter: 'blur(10px)', borderRadius: 'var(--radius-pill)', fontSize: '13px', fontWeight: 700, color: 'var(--text-primary)', marginBottom: '20px' }}>
-                ⚡ Get Started in 30 Seconds
-              </div>
-
               <h2 style={{ fontSize: '56px', fontWeight: 800, letterSpacing: '-0.035em', lineHeight: 1.1, color: '#1C1917', marginBottom: '20px' }}>
                 Dictate faster. <span className="serif-accent" style={{ color: '#44403C' }}>Own your words.</span>
               </h2>
@@ -2788,65 +2534,96 @@ export function App() {
             </div>
           </div>
         </section>
+      </main>
 
-        {/* 6. Footer with Huge Faint Wordmark */}
-        <footer style={{ 
-          maxWidth: '1200px', 
-          margin: '0 auto', 
-          padding: '64px 24px 32px', 
-          borderTop: '1px solid var(--border-medium)',
+      {/* 5. Footer with Premium Monochrome Design */}
+      <footer style={{ 
+        width: '100%',
+        backgroundColor: '#000000',
+        borderTop: '1px solid rgba(255, 255, 255, 0.12)',
+        position: 'relative',
+        overflow: 'hidden',
+        color: '#FFFFFF'
+      }}>
+        <div style={{
+          maxWidth: '1200px',
+          margin: '0 auto',
+          padding: '64px 24px 40px',
           position: 'relative',
-          overflow: 'hidden'
+          zIndex: 1
         }}>
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '64px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
-              <LiveSpeakLogo size={28} animate="off" color="#1C1917" textColor="#1C1917" />
-              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--pastel-mint)', padding: '2px 8px', borderRadius: '9999px' }}>
+          {/* Top Brand & Nav Row */}
+          <div className="footer-top-row" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '56px' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+              <LiveSpeakLogo size={28} animate="always" color="#FFFFFF" textColor="#FFFFFF" />
+              <span style={{ 
+                fontSize: '11px', 
+                fontWeight: 600, 
+                color: '#D4D4D4', 
+                backgroundColor: '#1A1A1A', 
+                border: '1px solid rgba(255, 255, 255, 0.1)', 
+                padding: '2px 8px', 
+                borderRadius: '9999px',
+                letterSpacing: '0.02em'
+              }}>
                 Edge
               </span>
             </div>
 
-            <div style={{ display: 'flex', alignItems: 'center', gap: '28px', fontSize: '14px', color: 'var(--text-secondary)' }}>
-              <a href="#download" style={{ color: 'inherit', textDecoration: 'none' }}>Download</a>
-              <a href="#features" style={{ color: 'inherit', textDecoration: 'none' }}>Architecture</a>
-              <a href="https://github.com/youknowme19/Team-Neaural_ninjas-Gopalan-" target="_blank" rel="noreferrer" style={{ color: 'inherit', textDecoration: 'none' }}>GitHub</a>
-              <a href="#privacy" style={{ color: 'inherit', textDecoration: 'none' }}>Air-Gap Security</a>
-            </div>
+            {/* Navigation Links */}
+            <nav className="footer-nav-links" aria-label="Footer navigation" style={{ display: 'flex', alignItems: 'center', gap: '28px' }}>
+              <a href="#download" className="footer-nav-link" style={{ color: '#D4D4D4', textDecoration: 'none' }}>Download</a>
+              <a href="#features" className="footer-nav-link" style={{ color: '#D4D4D4', textDecoration: 'none' }}>Architecture</a>
+              <a href="https://github.com/youknowme19/Team-Neaural_ninjas-Gopalan-" target="_blank" rel="noreferrer" className="footer-nav-link" style={{ color: '#D4D4D4', textDecoration: 'none' }}>GitHub</a>
+              <a href="#privacy" className="footer-nav-link" style={{ color: '#D4D4D4', textDecoration: 'none' }}>Air-Gap Security</a>
+            </nav>
           </div>
 
-          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
+          {/* Copyright & Specs Metadata Row */}
+          <div className="footer-copyright-row" style={{ 
+            display: 'flex', 
+            alignItems: 'center', 
+            justifyContent: 'space-between', 
+            fontSize: '13px', 
+            color: '#A3A3A3',
+            borderTop: '1px solid rgba(255, 255, 255, 0.08)',
+            paddingTop: '28px'
+          }}>
             <span>© 2026 LiveSpeak Edge. 100% On-Device, Air-Gapped & Free.</span>
             <span>Sub-200MB Distribution · Zero Cloud Reliance</span>
           </div>
 
-          {/* Huge Faint Wordmark */}
+          {/* Bottom Live Waveform & Brand (Monochrome, smooth, visible against black) */}
           <div style={{ 
-            textAlign: 'center', 
-            marginTop: '48px', 
-            userSelect: 'none', 
-            pointerEvents: 'none' 
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            flexDirection: 'column',
+            gap: '20px',
+            marginTop: '56px', 
+            paddingTop: '32px',
+            borderTop: '1px solid rgba(255, 255, 255, 0.06)'
           }}>
-            <span style={{ 
-              fontSize: '148px', 
-              fontWeight: 900, 
-              letterSpacing: '-0.05em', 
-              color: 'rgba(28, 25, 23, 0.03)', 
-              display: 'block', 
-              lineHeight: 0.8 
-            }}>
-              LiveSpeak
-            </span>
+            <div style={{ display: 'inline-flex', alignItems: 'center', gap: '20px' }}>
+              <LiveSpeakMark size={48} animate="always" color="#FFFFFF" />
+              <span style={{ 
+                fontSize: 'clamp(28px, 4vw, 42px)', 
+                fontWeight: 800, 
+                letterSpacing: '-0.04em', 
+                color: '#FFFFFF',
+                lineHeight: 1
+              }}>
+                LiveSpeak
+              </span>
+            </div>
+            <p style={{ fontSize: '13px', color: '#737373', letterSpacing: '0.04em', textTransform: 'uppercase', fontWeight: 600 }}>
+              On-Device Ultra-Low Latency Speech-to-Text
+            </p>
           </div>
-        </footer>
-      </main>
+        </div>
+      </footer>
     </div>
   );
 }
 
 export default App;
-
-
-
-
-
-
