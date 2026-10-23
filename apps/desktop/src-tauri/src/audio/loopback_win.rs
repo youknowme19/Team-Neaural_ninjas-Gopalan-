@@ -98,8 +98,8 @@ impl WindowsLoopbackCapture {
 
                     let is_app_mode = mode_worker
                         .lock()
-                        .map(|m| m.as_str() == "app")
-                        .unwrap_or(false);
+                        .map(|m| m.as_str() == "app" || m.as_str() == "all")
+                        .unwrap_or(true);
                     if !is_app_mode {
                         committed_english_context.clear();
                         continue;
@@ -122,8 +122,8 @@ impl WindowsLoopbackCapture {
                             if !cleaned.is_empty() {
                                 let still_app = mode_worker
                                     .lock()
-                                    .map(|m| m.as_str() == "app")
-                                    .unwrap_or(false);
+                                    .map(|m| m.as_str() == "app" || m.as_str() == "all")
+                                    .unwrap_or(true);
                                 if still_app {
                                     if is_final {
                                         committed_english_context = cleaned.clone();
@@ -152,8 +152,8 @@ impl WindowsLoopbackCapture {
                 while let Ok(samples_16k) = pcm_rx.recv() {
                     let is_app_mode = mode_vad
                         .lock()
-                        .map(|m| m.as_str() == "app")
-                        .unwrap_or(false);
+                        .map(|m| m.as_str() == "app" || m.as_str() == "all")
+                        .unwrap_or(true);
 
                     if !is_app_mode {
                         frame_accum.clear();
@@ -226,8 +226,112 @@ impl WindowsLoopbackCapture {
             });
         }
 
-        // 2. Spawn Hot-Plug Aware WASAPI Loopback audio capture thread on default output endpoint
-        // Automatically switches to USB Type-C earphones when connected or disconnected!
+        #[cfg(target_os = "macos")]
+        {
+            let selected_win_mac = _selected_window.clone();
+            let mode_mac = active_source_mode.clone();
+            let audio_flag_mac = device_audio_playing.clone();
+            let level_mac = live_audio_level.clone();
+            let tx_mac = pcm_tx.clone();
+
+            std::thread::spawn(move || {
+                use std::io::Read;
+                use std::process::{Command, Stdio};
+
+                let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+                let exe_dir = std::env::current_exe()
+                    .ok()
+                    .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                    .unwrap_or_else(|| cwd.clone());
+
+                let candidates = [
+                    exe_dir.join("screencapture-bridge"),
+                    exe_dir.join("bin/screencapture-bridge"),
+                    cwd.join("bin/screencapture-bridge"),
+                    cwd.join("src-tauri/bin/screencapture-bridge"),
+                    PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/bin/screencapture-bridge"),
+                    PathBuf::from("/Volumes/SSD/Gopalan/LiveSpeak.app/Contents/MacOS/screencapture-bridge"),
+                ];
+
+                let bridge_path = candidates.into_iter().find(|p| p.exists());
+
+                if let Some(bridge) = bridge_path {
+                    let mut current_pid: Option<u32> = None;
+                    loop {
+                        let target_pid = selected_win_mac
+                            .lock()
+                            .ok()
+                            .and_then(|w| w.as_ref().map(|app| app.process_id));
+
+                        current_pid = target_pid;
+
+                        let mut cmd = Command::new(&bridge);
+                        cmd.arg("capture");
+                        if let Some(pid) = target_pid {
+                            cmd.arg(pid.to_string());
+                        }
+
+                        cmd.stdout(Stdio::piped());
+                        cmd.stderr(Stdio::null());
+
+                        if let Ok(mut child) = cmd.spawn() {
+                            if let Some(mut stdout) = child.stdout.take() {
+                                let mut buf = [0u8; 4096];
+                                loop {
+                                    let latest_pid = selected_win_mac
+                                        .lock()
+                                        .ok()
+                                        .and_then(|w| w.as_ref().map(|app| app.process_id));
+                                    if latest_pid != current_pid {
+                                        break;
+                                    }
+
+                                    let n = match stdout.read(&mut buf) {
+                                        Ok(bytes) if bytes > 0 => bytes,
+                                        _ => break,
+                                    };
+
+                                    let sample_count = n / 4;
+                                    if sample_count == 0 {
+                                        continue;
+                                    }
+
+                                    let mut samples = Vec::with_capacity(sample_count);
+                                    let mut sum_sq = 0.0f32;
+                                    for chunk in buf[..sample_count * 4].chunks_exact(4) {
+                                        let s = f32::from_le_bytes([chunk[0], chunk[1], chunk[2], chunk[3]]);
+                                        sum_sq += s * s;
+                                        samples.push(s);
+                                    }
+
+                                    let rms = (sum_sq / sample_count as f32).sqrt();
+                                    let is_playing = rms > 0.003;
+                                    audio_flag_mac.store(is_playing, Ordering::Relaxed);
+
+                                    let is_app_mode = mode_mac
+                                        .lock()
+                                        .map(|m| m.as_str() == "app" || m.as_str() == "all")
+                                        .unwrap_or(true);
+                                    if is_app_mode {
+                                        let norm_level = ((rms - 0.002).max(0.0) * 10.0).clamp(0.0, 1.0);
+                                        if norm_level > 0.01 {
+                                            level_mac.store(norm_level.to_bits(), Ordering::Relaxed);
+                                        }
+                                    }
+
+                                    let _ = tx_mac.send(samples);
+                                }
+                            }
+                            let _ = child.kill();
+                        }
+                        std::thread::sleep(Duration::from_millis(300));
+                    }
+                }
+            });
+        }
+
+        // 2. Spawn Hot-Plug Aware WASAPI Loopback audio capture thread on default output endpoint (Windows)
+        #[cfg(target_os = "windows")]
         std::thread::spawn(move || {
             let last_sound_at = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(10)));
             let last_win_scan = Arc::new(Mutex::new(Instant::now() - Duration::from_secs(10)));
@@ -423,7 +527,7 @@ fn clean_app_transcript(raw: &str) -> String {
             ']' => depth_sq = (depth_sq - 1).max(0),
             '(' => depth_par += 1,
             ')' => depth_par = (depth_par - 1).max(0),
-            _ if depth_sq == 0 && depth_par == 0 && ch.is_ascii() && ch >= ' ' => no_tags.push(ch),
+            _ if depth_sq == 0 && depth_par == 0 && !ch.is_control() => no_tags.push(ch),
             _ => {}
         }
     }
@@ -433,7 +537,7 @@ fn clean_app_transcript(raw: &str) -> String {
         .trim_matches(|c: char| matches!(c, '?' | '.' | '-' | ',' | '!' | '*'))
         .trim();
 
-    if trimmed.chars().filter(|c| c.is_ascii_alphabetic()).count() < 2 {
+    if trimmed.chars().filter(|c| c.is_alphabetic()).count() < 2 {
         return String::new();
     }
 

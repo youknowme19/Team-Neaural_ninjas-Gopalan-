@@ -78,26 +78,33 @@ fn main() {
                 .unwrap_or_else(|| cwd.clone());
 
             let bin_candidates = [
+                exe_dir.clone(),
                 exe_dir.join("bin"),
                 cwd.join("bin"),
                 cwd.join("src-tauri/bin"),
                 PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/bin"),
+                PathBuf::from("/Volumes/SSD/Gopalan/LiveSpeak.app/Contents/MacOS"),
             ];
             let bin_dir = bin_candidates
                 .into_iter()
-                .find(|p| p.exists())
+                .find(|p| p.join("whisper-server").exists() || p.join("whisper-server.exe").exists())
                 .unwrap_or_else(|| cwd.join("bin"));
 
             let model_candidates = [
                 exe_dir.join("models"),
+                exe_dir.parent().map(|p| p.join("Resources/models")).unwrap_or_else(|| exe_dir.clone()),
                 cwd.join("models"),
                 cwd.join("src-tauri/models"),
                 PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/models"),
+                PathBuf::from("/Volumes/SSD/Gopalan/LiveSpeak.app/Contents/Resources/models"),
             ];
             let models_dir = model_candidates
                 .into_iter()
-                .find(|p| p.exists())
+                .find(|p| p.join("ggml-tiny.bin").exists() || p.join("ggml-base.en.bin").exists())
                 .unwrap_or_else(|| cwd.join("models"));
+
+            println!("[LiveSpeak] Resolved bin_dir: {:?}", bin_dir);
+            println!("[LiveSpeak] Resolved models_dir: {:?}", models_dir);
 
             // 1. Spawn Persistent In-RAM `whisper-server` with Silero Neural VAD + Whisper model
             {

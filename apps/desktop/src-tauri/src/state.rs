@@ -75,7 +75,7 @@ impl AppState {
             live_event_active: Arc::new(AtomicBool::new(false)),
             whisper_worker: Arc::new(Mutex::new(None)),
             live_transcript: Arc::new(std::sync::Mutex::new(String::new())),
-            active_source_mode: Arc::new(std::sync::Mutex::new("mic".to_string())),
+            active_source_mode: Arc::new(std::sync::Mutex::new("all".to_string())),
             selected_window: Arc::new(std::sync::Mutex::new(None)),
             selected_mic_device: Arc::new(std::sync::Mutex::new(None)),
             device_audio_playing: Arc::new(AtomicBool::new(false)),

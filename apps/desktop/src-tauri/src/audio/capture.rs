@@ -189,7 +189,7 @@ impl AudioCaptureManager {
 
                     let is_mic_mode = mode_worker
                         .lock()
-                        .map(|m| m.as_str() == "mic")
+                        .map(|m| m.as_str() == "mic" || m.as_str() == "all")
                         .unwrap_or(true);
                     if !is_mic_mode {
                         committed_english_context.clear();
@@ -237,7 +237,7 @@ impl AudioCaptureManager {
                 while let Ok(samples_16k) = pcm_rx.recv() {
                     let is_mic_mode = mode_vad
                         .lock()
-                        .map(|m| m.as_str() == "mic")
+                        .map(|m| m.as_str() == "mic" || m.as_str() == "all")
                         .unwrap_or(true);
 
                     if !is_mic_mode {
@@ -380,11 +380,13 @@ impl AudioCaptureManager {
                     }
 
                     // Update real-time wave visualizer energy when in microphone mode
-                    let is_mic = mode_cb.lock().map(|m| m.as_str() == "mic").unwrap_or(true);
+                    let is_mic = mode_cb.lock().map(|m| m.as_str() == "mic" || m.as_str() == "all").unwrap_or(true);
                     if is_mic {
                         let rms = (sum_sq / frames as f32).sqrt();
                         let norm_level = ((rms - 0.003).max(0.0) * 14.0).clamp(0.0, 1.0);
-                        level_cb.store(norm_level.to_bits(), Ordering::Relaxed);
+                        if norm_level > 0.01 {
+                            level_cb.store(norm_level.to_bits(), Ordering::Relaxed);
+                        }
                     }
 
                     let resampled = downsample_to_16k_antialiased(&mono, sample_rate);
@@ -520,7 +522,7 @@ pub fn clean_verified_speech(raw: &str) -> String {
             ']' => depth_sq = (depth_sq - 1).max(0),
             '(' => depth_par += 1,
             ')' => depth_par = (depth_par - 1).max(0),
-            _ if depth_sq == 0 && depth_par == 0 && ch.is_ascii() && ch >= ' ' => no_tags.push(ch),
+            _ if depth_sq == 0 && depth_par == 0 && !ch.is_control() => no_tags.push(ch),
             _ => {}
         }
     }
@@ -530,7 +532,7 @@ pub fn clean_verified_speech(raw: &str) -> String {
         .trim_matches(|c: char| matches!(c, '?' | '.' | '-' | ',' | '!' | '*'))
         .trim();
 
-    if trimmed.chars().filter(|c| c.is_ascii_alphabetic()).count() < 2 {
+    if trimmed.chars().filter(|c| c.is_alphabetic()).count() < 2 {
         return String::new();
     }
 

@@ -15,10 +15,12 @@ dist/
 target/
 src-tauri/target/
 **/target/
+*.app/
+LiveSpeak.app/
 **/bin/*.exe
 **/bin/*.dll
 **/bin/*.dylib
-**/bin/screencapture-bridge
+**/bin/screencapture-bridge*
 **/bin/whisper*
 **/bin/parakeet-*
 **/bin/test-*

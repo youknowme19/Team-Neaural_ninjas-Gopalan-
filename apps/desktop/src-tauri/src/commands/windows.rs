@@ -156,10 +156,18 @@ pub fn get_windows_internal() -> Result<Vec<ActiveWindow>, String> {
     }
 
     let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let exe_dir = std::env::current_exe()
+        .ok()
+        .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+        .unwrap_or_else(|| cwd.clone());
+
     let candidates = [
+        exe_dir.join("screencapture-bridge"),
+        exe_dir.join("screencapture-bridge-aarch64-apple-darwin"),
         cwd.join("bin/screencapture-bridge"),
         cwd.join("src-tauri/bin/screencapture-bridge"),
         PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/bin/screencapture-bridge"),
+        PathBuf::from("/Volumes/SSD/Gopalan/LiveSpeak.app/Contents/MacOS/screencapture-bridge"),
     ];
 
     let bridge_path = candidates.iter().find(|p| p.exists()).cloned();

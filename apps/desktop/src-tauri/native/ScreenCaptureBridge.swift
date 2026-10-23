@@ -16,14 +16,29 @@ class AudioStreamDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
     func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
         guard type == .audio, sampleBuffer.isValid else { return }
 
+        var bufferListSizeNeeded: Int = 0
+        CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
+            sampleBuffer,
+            bufferListSizeNeededOut: &bufferListSizeNeeded,
+            bufferListOut: nil,
+            bufferListSize: 0,
+            blockBufferAllocator: nil,
+            blockBufferMemoryAllocator: nil,
+            flags: 0,
+            blockBufferOut: nil
+        )
+
+        guard bufferListSizeNeeded > 0 else { return }
+
+        let bufferListMem = UnsafeMutablePointer<AudioBufferList>.allocate(capacity: bufferListSizeNeeded)
+        defer { bufferListMem.deallocate() }
         var blockBuffer: CMBlockBuffer?
-        var audioBufferList = AudioBufferList()
 
         let status = CMSampleBufferGetAudioBufferListWithRetainedBlockBuffer(
             sampleBuffer,
             bufferListSizeNeededOut: nil,
-            bufferListOut: &audioBufferList,
-            bufferListSize: MemoryLayout<AudioBufferList>.size,
+            bufferListOut: bufferListMem,
+            bufferListSize: bufferListSizeNeeded,
             blockBufferAllocator: nil,
             blockBufferMemoryAllocator: nil,
             flags: 0,
@@ -32,10 +47,31 @@ class AudioStreamDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
 
         guard status == noErr else { return }
 
-        if let mData = audioBufferList.mBuffers.mData {
-            let byteCount = Int(audioBufferList.mBuffers.mDataByteSize)
-            if byteCount > 0 {
-                let data = Data(bytes: mData, count: byteCount)
+        let ablPointer = UnsafeMutableAudioBufferListPointer(bufferListMem)
+        guard ablPointer.count > 0, let firstBuf = ablPointer.first, firstBuf.mDataByteSize > 0 else { return }
+
+        let frameCount = Int(firstBuf.mDataByteSize) / 4
+        guard frameCount >= 3, let ch0 = firstBuf.mData?.assumingMemoryBound(to: Float.self) else { return }
+
+        let ch1 = (ablPointer.count > 1 && ablPointer[1].mData != nil)
+            ? ablPointer[1].mData!.assumingMemoryBound(to: Float.self)
+            : ch0
+
+        // 3:1 decimation with 3-tap boxcar averaging to downsample 48,000 Hz stereo to 16,000 Hz mono
+        let outFrames = frameCount / 3
+        var downsampled = [Float](repeating: 0.0, count: outFrames)
+
+        for i in 0..<outFrames {
+            let base = i * 3
+            let mono0 = (ch0[base] + ch1[base]) * 0.5
+            let mono1 = (ch0[base + 1] + ch1[base + 1]) * 0.5
+            let mono2 = (ch0[base + 2] + ch1[base + 2]) * 0.5
+            downsampled[i] = (mono0 + mono1 + mono2) / 3.0
+        }
+
+        downsampled.withUnsafeBytes { rawBuf in
+            if let baseAddress = rawBuf.baseAddress {
+                let data = Data(bytes: baseAddress, count: rawBuf.count)
                 stdoutHandle.write(data)
             }
         }
