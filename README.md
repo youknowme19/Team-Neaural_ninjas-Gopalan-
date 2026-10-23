@@ -2,44 +2,48 @@
 
 **Master Project Specification & Implementation Blueprint**
 
-OmniScribe Edge is a featherweight (under 200MB total footprint), 100% on-device, ultra-low-latency live speech-to-text (STT) desktop application with integrated local grammar correction. Engineered using Tauri v2, native Rust audio pipelines, and quantized neural engine sidecars, the application guarantees zero cloud reliance, sub-second transcription latency, and native hardware-accelerated inference across Apple Silicon and Windows ARM64/x64 architectures.
+OmniScribe Edge is a featherweight (under 200MB total footprint), 100% on-device, ultra-low-latency live speech-to-text (STT) desktop application with integrated local grammar correction and live event audience broadcasting. Engineered using Tauri v2, native Rust audio pipelines, and quantized neural engine sidecars, the application guarantees zero cloud reliance, sub-second transcription latency, hardware-accelerated inference across Apple Silicon and Windows ARM64/x64 architectures, and zero-driver system audio capture for hybrid/virtual live events.
 
 ---
 
 ## 1. Executive Summary & Core Constraints
 
 ### 1.1 Objective
-Deliver a production-ready, local-first dictation and transcription utility that operates without network access, preserves absolute user privacy, and integrates seamlessly into desktop workflows through a floating, frameless glassmorphic interface.
+Deliver a production-ready, local-first dictation, transcription, and live-event broadcasting platform that operates without network latency, preserves absolute user privacy, and integrates seamlessly into desktop workflows through a floating, frameless glassmorphic interface, OBS stream overlays, and local audience mobile sync.
 
 ### 1.2 Performance & Budgetary Constraints
 * **Total Binary & Asset Footprint:** Under 200 MB combined (Tauri v2 host binary, whisper.cpp sidecar binary, quantized GGUF weights, and static assets).
-* **Latency Profile:** Sub-second response time from end-of-speech detection to rendered transcript.
-* **Network Independence:** Zero cloud reliance for transcription and core features; air-gapped security compliance.
+* **Latency Profile:** Sub-second response time with continuous sliding-window token streaming (partial tokens rendered in under 350ms; final tokens within 800ms).
+* **Network Independence:** Zero cloud reliance for transcription, grammar correction, and local audience broadcasting; air-gapped security compliance.
 * **Hardware Acceleration Targets:**
   * Apple Silicon: M-Series Neural Engine via CoreML backend compilation.
   * Windows: Qualcomm Snapdragon ARM64 and AMD/Intel x86_64 via DirectML backend compilation.
-* **Form Factor:** Frameless, borderless, floating glassmorphic overlay adhering to native macOS and modern Windows visual paradigms.
+* **Audio Routing Capabilities:** Dual-source audio ingestion supporting both physical microphone input and driverless system audio capture (macOS ScreenCaptureKit and Windows WASAPI loopback).
+* **Form Factor & Broadcasting:** Frameless, borderless, floating glassmorphic overlay adhering to native macOS and modern Windows visual paradigms, accompanied by an OBS transparent browser source and a zero-install LAN QR broadcast mode.
 
 ---
 
 ## 2. High-Organization System Architecture
 
-The following diagram details the multi-tier architectural topology of OmniScribe Edge, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, and data ingestion paths.
+The following diagram details the multi-tier architectural topology of OmniScribe Edge, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, dual-source audio capture, sliding-window streaming, and LAN audience distribution.
 
 ```mermaid
 graph TB
     subgraph Host_Environment["Host Operating System Layer"]
-        OS_Audio["Hardware Audio Input (Microphone)"]
+        OS_Mic["Physical Audio Input (Microphone)"]
+        OS_SysAudio_Mac["macOS System Audio (ScreenCaptureKit API)"]
+        OS_SysAudio_Win["Windows System Audio (WASAPI Loopback)"]
         OS_Hotkeys["Global OS Shortcut Service (Cmd+Shift+Space / Ctrl+Shift+Space)"]
         OS_Clipboard["System Clipboard API"]
     end
 
     subgraph Tauri_Core["Tauri v2 Native Runtime (Rust Backend)"]
-        subgraph Audio_Pipeline["Audio Ingestion & Pre-processing"]
-            CPAL_Engine["CPAL Audio Capture Stream"]
+        subgraph Audio_Pipeline["Dual-Source Audio Ingestion & Pipeline"]
+            Audio_Selector["Audio Source Controller (Mic vs. System)"]
+            CPAL_Engine["CPAL Stream / ScreenCaptureKit Bridge"]
             Ring_Buffer["Lock-Free Circular Ring Buffer"]
             Silero_VAD["Silero VAD (ONNX Runtime Engine)"]
-            WAV_Encoder["In-Memory RIFF/WAV Chunk Slicer"]
+            Sliding_Window["3-Second Continuous Sliding Window Slicer"]
         end
 
         subgraph Orchestration_Layer["Process & Event Orchestration"]
@@ -47,6 +51,13 @@ graph TB
             Window_Controller["Window State & Z-Index Manager"]
             IPC_Bridge["Tauri IPC Event Dispatcher"]
             Sidecar_Manager["Sidecar Process Lifecycle Manager"]
+            Token_Classifier["Token Parser (PARTIAL vs. FINAL)"]
+        end
+
+        subgraph Broadcast_Engine["Live Event LAN Broadcaster"]
+            WS_Server["Tokio-Tungstenite WebSocket Server (ws://localhost:8080)"]
+            LAN_Resolver["LAN IP Resolver & QR Generator"]
+            Static_Server["Embedded HTTP Receiver Server"]
         end
 
         subgraph Local_NLP["Grammar Remediation Pipeline"]
@@ -57,7 +68,7 @@ graph TB
     end
 
     subgraph AI_Sidecars["Isolated Sidecar Executables"]
-        Whisper_Sidecar["whisper.cpp Binary (Subprocess)"]
+        Whisper_Sidecar["whisper.cpp Binary (Stream Mode Subprocess)"]
         Llama_Sidecar["llama.cpp Binary (Subprocess)"]
         subgraph Hardware_Engines["Hardware Acceleration Backends"]
             CoreML_Engine["Apple Neural Engine (CoreML)"]
@@ -74,95 +85,106 @@ graph TB
     subgraph UI_Layer["Frontend Presentation Shell (React + TypeScript)"]
         Root_Widget["Frameless Glassmorphic Container"]
         Audio_Visualizer["Framer Motion Waveform Visualizer"]
-        Transcript_Stream["Live Streaming Transcription Panel"]
-        Action_Toolbar["Cleanup & Clipboard Toolbar"]
+        Transcript_Stream["Dual-Token Live Stream (Partial / Final)"]
+        Action_Toolbar["Cleanup, Clipboard & Broadcast Controls"]
+        QR_Modal["Live Event QR Code Display"]
     end
 
-    %% Ingestion Flow
-    OS_Audio -->|Raw PCM Stream| CPAL_Engine
+    subgraph External_Clients["Audience & Streaming Consumers"]
+        OBS_Client["OBS Studio (Browser Source Overlay)"]
+        Mobile_Audience["Mobile Phones via Local WiFi (LAN Web View)"]
+    end
+
+    %% Ingestion Routing
+    OS_Mic --> Audio_Selector
+    OS_SysAudio_Mac --> Audio_Selector
+    OS_SysAudio_Win --> Audio_Selector
+    Audio_Selector --> CPAL_Engine
     CPAL_Engine -->|16kHz 16-bit Mono PCM| Ring_Buffer
-    Ring_Buffer -->|Sliding Windows| Silero_VAD
-    Silero_VAD -->|Speech Boundary Trigger| WAV_Encoder
-    WAV_Encoder -->|Piped WAV Chunk Buffer| Sidecar_Manager
+
+    %% Processing paths
+    Ring_Buffer --> Silero_VAD
+    Ring_Buffer --> Sliding_Window
+    Silero_VAD -.->|VAD Dictation Mode| Sidecar_Manager
+    Sliding_Window -->|Continuous Live Event Mode| Sidecar_Manager
 
     %% Sidecar Inference
-    Sidecar_Manager -->|Standard Input / Args| Whisper_Sidecar
+    Sidecar_Manager -->|Stream Audio Chunks| Whisper_Sidecar
     Whisper_Weights -.->|mmap Model Weights| Whisper_Sidecar
     Whisper_Sidecar --> CoreML_Engine
     Whisper_Sidecar --> DirectML_Engine
-    Whisper_Sidecar -->|stdout Token Stream| Sidecar_Manager
+    Whisper_Sidecar -->|stdout Raw Tokens| Token_Classifier
 
-    %% IPC to UI
-    Sidecar_Manager -->|Emit: transcript-stream| IPC_Bridge
-    IPC_Bridge -->|Tauri Event Listener| Transcript_Stream
+    %% Internal Token Dispatch
+    Token_Classifier -->|Emit: token-stream {type, text}| IPC_Bridge
+    IPC_Bridge --> Transcript_Stream
+
+    %% Broadcasting Dispatch
+    Token_Classifier -->|Broadcast Payload| WS_Server
+    WS_Server -->|Local WebSocket Stream| OBS_Client
+    WS_Server -->|LAN WebSocket Stream| Mobile_Audience
+    LAN_Resolver -->|IP URL QR Code| QR_Modal
+    Static_Server -->|Serve /broadcast UI| OBS_Client
+    Static_Server -->|Serve /broadcast UI| Mobile_Audience
 
     %% Hotkeys & Controls
-    OS_Hotkeys -->|Shortcut Signals| Shortcut_Handler
-    Shortcut_Handler -->|Toggle Recording| Audio_Pipeline
-    Shortcut_Handler -->|Emit: record-state| IPC_Bridge
-    IPC_Bridge -->|State Sync| Audio_Visualizer
+    OS_Hotkeys --> Shortcut_Handler
+    Shortcut_Handler --> Audio_Pipeline
+    Shortcut_Handler --> IPC_Bridge
+    IPC_Bridge --> Audio_Visualizer
 
     %% Cleanup Pipeline
     Action_Toolbar -->|Invoke: clean_transcript| IPC_Bridge
-    IPC_Bridge -->|Dispatch Text| Grammar_Router
+    IPC_Bridge --> Grammar_Router
     Grammar_Router -->|Local Path| LLM_Sidecar_Bridge
     Grammar_Router -->|API Path| Cloud_Fallback
-    LLM_Sidecar_Bridge -->|Subprocess Invocation| Llama_Sidecar
+    LLM_Sidecar_Bridge --> Llama_Sidecar
     Grammar_Weights -.->|mmap| Llama_Sidecar
     Llama_Sidecar --> CoreML_Engine
     Llama_Sidecar --> DirectML_Engine
-    Grammar_Router -->|Cleaned Text Return| IPC_Bridge
-    IPC_Bridge -->|Render Formatted Text| Transcript_Stream
-    Action_Toolbar -->|Copy Text Payload| OS_Clipboard
+    Grammar_Router --> IPC_Bridge
+    IPC_Bridge --> Transcript_Stream
+    Action_Toolbar --> OS_Clipboard
 ```
 
 ---
 
-## 3. End-to-End Data Flow & State Machine
+## 3. End-to-End Data Flow & Lifecycle State Machine
 
-The runtime transitions through strict lifecycle states to prevent thread contention, buffer overruns, and audio hallucination during non-speech segments.
+The runtime supports two discrete execution paths: (1) Standard Push-to-Talk / Dictation with VAD boundary slicing, and (2) Continuous Live Event Streaming with sliding windows and LAN distribution.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant User as End User
-    participant OS as OS Global Shortcut / Audio
-    participant Host as Tauri Rust Backend
-    participant VAD as Silero VAD (ONNX)
-    participant Sidecar as whisper.cpp Sidecar
-    participant UI as React Frontend
+    participant HostOS as OS Audio / Hotkey
+    participant Rust as Tauri Rust Backend
+    participant Whisper as whisper.cpp (Stream Mode)
+    participant DesktopUI as React Desktop App
+    participant Broadcaster as WebSocket & HTTP Server
+    participant Audience as OBS / Mobile Audience
 
-    User->>OS: Press Global Hotkey (Cmd+Shift+Space)
-    OS->>Host: Shortcut Event Dispatched
-    Host->>UI: Emit "recording-state: active"
-    UI->>UI: Animate Glassmorphic Ring & Recording Pulse
+    Note over HostOS,Audience: Phase A: Audio Ingestion & Source Selection
+    HostOS->>Rust: Capture Audio (Mic or WASAPI/ScreenCaptureKit System Audio)
+    Rust->>Rust: Write 16kHz PCM to Lock-Free Circular Ring Buffer
 
-    loop Continuous Audio Capture
-        OS->>Host: Stream 16kHz PCM Audio Stream
-        Host->>Host: Write Samples to Lock-Free Ring Buffer
-        Host->>VAD: Query Window Probabilities
-        alt Silence / Background Noise (Probability < Threshold)
-            VAD-->>Host: Drop / Maintain Rolling Pre-Roll Window
-        else Voice Activity Detected (Probability >= Threshold)
-            VAD-->>Host: Speech Frame Detected
-            Host->>Host: Accumulate Speech Frames
-        end
+    Note over HostOS,Audience: Phase B: Continuous Sliding-Window Inference
+    loop Every 500ms Sliding Window (3s Duration)
+        Rust->>Whisper: Pipe 3-Second Overlapping Audio Frame
+        Whisper->>Whisper: CoreML / DirectML Inference
+        Whisper-->>Rust: Stream stdout Tokens
+        Rust->>Rust: Token Classifier parses PARTIAL vs. FINAL text
+        Rust->>DesktopUI: Emit Tauri Event { type: "partial" | "final", text }
+        DesktopUI->>DesktopUI: Render Real-Time "Typing" Transition
+        Rust->>Broadcaster: Forward JSON Payload to Connected Sockets
+        Broadcaster-->>Audience: Stream Live JSON to OBS & LAN Mobile Devices
+        Audience->>Audience: Instant Dynamic Subtitle Paint
     end
 
-    VAD-->>Host: Post-Speech Silence Hangover Elapsed
-    Host->>Host: Slice WAV Buffer in Memory
-    Host->>Sidecar: Spawn / Feed Slice via stdin / CLI Args
-    Sidecar->>Sidecar: Compute Mel Spectrogram & Inference (CoreML/DirectML)
-    Sidecar-->>Host: Stream stdout Text Chunks
-    Host->>UI: Emit "transcription-token"
-    UI->>UI: Append Tokens to Active Text Area
-
-    User->>UI: Click "Clean Up"
-    UI->>Host: Invoke command "clean_text(raw_transcript)"
-    Host->>Host: Execute Local LLM or Low-Latency Groq Engine
-    Host-->>UI: Return Structured, Punctuated, Cleaned Text
-    User->>UI: Click "Copy"
-    UI->>OS: Write Cleaned Text to System Clipboard
+    Note over HostOS,Audience: Phase C: Grammar Cleanup & Export
+    DesktopUI->>Rust: Trigger "Clean Up" Request
+    Rust->>Rust: Run Local Qwen2.5-0.5B or Groq Low-Latency Engine
+    Rust-->>DesktopUI: Render Punctuated, Polished Text
+    DesktopUI->>HostOS: Copy to Clipboard
 ```
 
 ---
@@ -175,28 +197,40 @@ sequenceDiagram
 
 ### 4.2 Frontend Architecture
 * **View Layer:** React 18 with TypeScript.
+* **Routing:** Dual-view architecture:
+  * Primary View (`/`): Frameless, glassmorphic floating controller and transcription widget.
+  * Broadcast View (`/broadcast`): Transparent overlay view (`rgba(0,0,0,0)`) designed for OBS Studio Browser Sources and mobile responsive rendering.
 * **Styling Engine:** Tailwind CSS configured with custom backdrop-filter and HSL-based alpha-channel extensions.
 * **Animation Suite:** Framer Motion for hardware-accelerated micro-interactions, layout transitions, and pulsating audio meters.
 * **Component Primitives:** Radix UI unstyled accessibility primitives.
 
-### 4.3 Audio Capture & Voice Activity Detection (VAD)
-* **Audio Input Library:** `cpal` (Cross-Platform Audio Library) capturing standard 16,000 Hz, 16-bit, mono channel PCM audio streams.
-* **Buffer Management:** Thread-safe, lock-free ring buffer maintaining a 200ms pre-roll and 500ms post-roll hang-over.
-* **VAD Engine:** Silero VAD packaged in ONNX format (~2MB), executed via `ort` (ONNX Runtime bindings for Rust). Slices speech into discrete boundaries to eliminate hallucination during zero-amplitude frames.
+### 4.3 Audio Capture, Loopback & Activity Detection
+* **Microphone Input:** `cpal` (Cross-Platform Audio Library) capturing 16,000 Hz, 16-bit, mono channel PCM streams.
+* **macOS System Audio:** Native `ScreenCaptureKit` bindings via Rust, enabling direct application and system audio capture without requiring virtual drivers (e.g., BlackHole).
+* **Windows System Audio:** `cpal` configured with WASAPI loopback mode (`AUDCLNT_STREAMFLAGS_LOOPBACK`), capturing audio output without third-party virtual audio cables.
+* **Buffer Management:** Thread-safe, lock-free ring buffer maintaining rolling audio windows.
+* **VAD Engine:** Silero VAD packaged in ONNX format (~2MB), executed via `ort` (ONNX Runtime bindings for Rust). Slices speech into discrete boundaries for dictation mode.
+* **Continuous Streamer:** 3-second sliding window processor with 500ms step increments for unbroken live event broadcasting.
 
 ### 4.4 Speech-to-Text Engine
-* **Inference Core:** `whisper.cpp` compiled as a relocatable external sidecar binary.
+* **Inference Core:** `whisper.cpp` compiled as a relocatable external sidecar binary with stream processing flags enabled.
 * **Model Topology:** OpenAI Whisper `tiny.en` (~75MB) or `base.en` (~140MB) quantized to GGUF format.
 * **Acceleration Bindings:**
   * macOS: `-DWHISPER_COREML=ON` utilizing the Apple Silicon Neural Engine (ANE).
   * Windows: `-DWHISPER_DIRECTML=ON` offloading to local DirectX 12 compatible NPUs and GPUs.
 
-### 4.5 Grammar Correction & Post-Processing
+### 4.5 Live Broadcasting & Network Subsystem
+* **WebSocket Engine:** `tokio-tungstenite` lightweight async WebSocket server running on local port `8080`.
+* **Local Discovery:** `local-ip-address` crate for resolving the host machine's LAN IP address.
+* **QR Code Engine:** `qrcode` crate generating base64 PNG and SVG data URLs directly in Rust for immediate display in the React UI.
+* **OBS Integration:** Pure transparent HTML/CSS endpoint compatible with OBS Studio Browser Source (`rgba(0,0,0,0)` background).
+
+### 4.6 Grammar Correction & Post-Processing
 * **Primary (Local Execution):** `llama.cpp` sidecar executing Qwen2.5-0.5B-Instruct in 4-bit quantization (Q4_K_M).
 * **Secondary (Low-Storage Compliance):** High-speed fallback API (Groq running Llama-3.1-8B-Instant) for environments demanding strict under-200MB total disk boundaries where local LLM weights cannot be stored.
-* **Operations:** Filler word removal ("um", "uh", "like"), punctuation restoration, capitalizing proper nouns, and context-aware sentence restructuring.
+* **Operations:** Disfluency and filler word removal ("um", "uh", "like"), punctuation restoration, casing correction, and context-aware sentence restructuring.
 
-### 4.6 Product Web Asset
+### 4.7 Product Web Asset
 * **Framework:** Next.js 14 (App Router) with static export capability (`output: export`).
 * **Design Aesthetic:** Editorial dark-mode aesthetic featuring deep charcoal backdrops, interactive canvas grids, and instant download matrices.
 
@@ -204,20 +238,21 @@ sequenceDiagram
 
 ## 5. Memory, Storage & Latency Budget
 
-To strictly honor the 200MB total distribution limit while providing real-time responsiveness, assets and resources are allocated according to the matrix below:
+To strictly honor the 200MB total distribution limit while providing real-time responsiveness and live broadcasting, assets and resources are allocated according to the matrix below:
 
 | Component | Storage Size | Runtime Memory (RAM) | Primary Execution Target |
 | :--- | :--- | :--- | :--- |
-| Tauri Host Binary (Stripped) | 12 MB | 25 MB - 40 MB | CPU (Native Thread) |
-| Web UI Assets (Static bundle) | 2.5 MB | Shared WebView | WebKit / WebView2 |
+| Tauri Host Binary (Stripped) | 12.8 MB | 30 MB - 45 MB | CPU (Native Thread) |
+| Web UI Assets (Desktop + Broadcast UI) | 2.8 MB | Shared WebView | WebKit / WebView2 |
 | whisper.cpp Sidecar Executable | 4.8 MB | 15 MB | CPU / Subprocess |
 | Silero VAD ONNX Model | 1.8 MB | 10 MB | CPU / ONNX Runtime |
 | Whisper `tiny.en` Model (GGUF) | 75.0 MB | 110 MB | Apple Neural Engine / DirectML |
-| Dynamic Libraries (CoreML / ONNX) | 45.0 MB | Shared Virtual Mem | OS Dynamic Linker |
+| Dynamic Libraries (CoreML / ONNX / DirectML) | 45.0 MB | Shared Virtual Mem | OS Dynamic Linker |
+| WebSocket & Embedded Server Runtime | Included in host | 4 MB - 8 MB | Async Tokio Pool |
 | Application Config & Caches | < 1.0 MB | < 2 MB | Local Storage |
-| **Total Core Configuration** | **~142.1 MB** | **~160 MB - 190 MB** | **Sub-200MB Target Met** |
+| **Total Core Configuration** | **~143.2 MB** | **~170 MB - 210 MB** | **Sub-200MB Target Met** |
 
-*Note: When opting for the optional local grammar correction model (Qwen2.5-0.5B at ~350MB), the application enables an dynamic on-demand model downloader. For strict zero-download, single-package distribution under 200MB, the default configuration utilizes Whisper `tiny.en` with the low-latency API endpoint for grammar cleanup.*
+*Note: For deployments utilizing the optional local grammar correction model (Qwen2.5-0.5B at ~350MB), the application features an on-demand model downloader. For strict zero-download distribution under 200MB, the default configuration utilizes Whisper `tiny.en` paired with the low-latency API endpoint for grammar cleanup.*
 
 ---
 
@@ -238,15 +273,21 @@ OmniScribe-Edge/
 |   |   |   |-- main.tsx
 |   |   |   |-- App.tsx
 |   |   |   |-- index.css
+|   |   |   |-- routes/
+|   |   |   |   |-- WidgetView.tsx        # Main floating desktop widget
+|   |   |   |   |-- BroadcastView.tsx     # Transparent OBS / Mobile receiver
 |   |   |   |-- components/
 |   |   |   |   |-- GlassContainer.tsx    # Frameless floating shell
+|   |   |   |   |-- AudioSourceToggle.tsx # Mic vs. System Audio switch
 |   |   |   |   |-- RecordButton.tsx      # Reactive pulse trigger
 |   |   |   |   |-- AudioVisualizer.tsx   # Framer Motion soundwave
-|   |   |   |   |-- TranscriptArea.tsx    # Streaming text display
-|   |   |   |   |-- ActionToolbar.tsx     # Clean up and clipboard controls
+|   |   |   |   |-- StreamingTranscript.tsx # Dual partial/final token renderer
+|   |   |   |   |-- ActionToolbar.tsx     # Clean up, clipboard & broadcast
+|   |   |   |   |-- QRCodeModal.tsx       # Live event LAN connection QR
 |   |   |   |-- hooks/
 |   |   |   |   |-- useAudioCapture.ts
 |   |   |   |   |-- useTauriEvents.ts
+|   |   |   |   |-- useBroadcastSocket.ts
 |   |   |   |-- types/
 |   |   |       |-- transcript.ts
 |   |   |-- src-tauri/                    # Rust Native Host
@@ -263,17 +304,27 @@ OmniScribe-Edge/
 |   |           |-- main.rs
 |   |           |-- lib.rs
 |   |           |-- audio/
-|   |           |   |-- capture.rs        # CPAL stream manager
-|   |           |   |-- ring_buffer.rs    # Circular buffer
+|   |           |   |-- mod.rs
+|   |           |   |-- capture.rs        # CPAL input stream manager
+|   |           |   |-- loopback_win.rs   # Windows WASAPI loopback capture
+|   |           |   |-- screencapture_mac.rs # macOS ScreenCaptureKit bridge
+|   |           |   |-- ring_buffer.rs    # Circular lock-free buffer
+|   |           |   |-- sliding_window.rs # 3s continuous sliding window
 |   |           |   |-- vad.rs            # Silero ONNX evaluation
 |   |           |   |-- wav.rs            # Memory WAV serialization
+|   |           |-- broadcast/
+|   |           |   |-- mod.rs
+|   |           |   |-- websocket.rs      # Tokio-tungstenite socket server
+|   |           |   |-- qr.rs             # LAN IP detection & QR generator
 |   |           |-- engine/
 |   |           |   |-- sidecar.rs        # Subprocess lifecycle & stdout
+|   |           |   |-- parser.rs         # [PARTIAL] vs [FINAL] token classifier
 |   |           |   |-- grammar.rs        # Text post-processing router
 |   |           |-- commands/
-|   |           |   |-- recording.rs      # Tauri invocable methods
+|   |           |   |-- recording.rs      # Audio start/stop & source toggle
+|   |           |   |-- broadcast.rs      # Live event broadcast triggers
 |   |           |   |-- clipboard.rs
-|   |           |-- state.rs              # AppState & atomic flags
+|   |           |-- state.rs              # AppState, broadcast channels & flags
 |   |-- web/                              # Product Marketing Asset
 |       |-- package.json
 |       |-- next.config.mjs
@@ -286,6 +337,7 @@ OmniScribe-Edge/
 |           |-- components/
 |               |-- HeroSection.tsx
 |               |-- DesktopDemoMock.tsx
+|               |-- LiveEventBroadcastDemo.tsx
 |               |-- DownloadMatrix.tsx
 |               |-- ArchitectureDeepDive.tsx
 |-- scripts/                              # Compilation & packaging utilities
@@ -295,12 +347,12 @@ OmniScribe-Edge/
 
 ---
 
-## 7. Subsystem Deep Dive & Implementation Details
+## 7. Subsystem Deep Dive: Core Desktop Features
 
 ### 7.1 Window Shell & Glassmorphic Styling
 To achieve the native macOS floating widget aesthetic without borders or chrome:
 
-1. **Tauri Window Attributes (`tauri.conf.json`):**
+1. **Tauri Window Configuration (`tauri.conf.json`):**
    ```json
    {
      "app": {
@@ -333,26 +385,15 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
    }
    ```
 
-### 7.2 Audio Ingestion & Silence Slicing
-* The `cpal` worker thread samples the default input hardware at 16,000 Hz (single channel, float32 normalized).
+### 7.2 Push-to-Talk & Dictation Silence Slicing
+* The `cpal` worker thread samples input hardware at 16,000 Hz (single channel, float32 normalized).
 * Samples are continuously pumped into an atomic circular ring buffer.
 * The Silero VAD processor operates on fixed 512-sample blocks (32ms per frame). A probability rating is generated per block:
   * Speech Start: Probability > 0.55 sustained over 3 consecutive frames triggers an active audio segment.
   * Speech End: Probability < 0.35 sustained over 400ms marks the termination of speech.
 * Upon termination, the buffered samples (including a 150ms pre-roll to prevent front-clipping of plosives) are converted to a 16-bit linear PCM WAV container in memory.
 
-### 7.3 whisper.cpp Sidecar Bridge
-* The Rust orchestrator maintains a reference to the compiled `whisper.cpp` sidecar executable using Tauri's `tauri::async_runtime::spawn` and `tauri::plugin::shell::ShellExt`.
-* Arguments passed ensure streaming stdout emission:
-  ```bash
-  whisper-sidecar --model models/ggml-tiny.en-q5_1.bin --step 500 --length 3000 -t 4 -np -nt
-  ```
-* Standard output lines are parsed by regular expression to remove progress metadata and timestamps, streaming clean token strings straight to the frontend via Tauri IPC events:
-  ```rust
-  app_handle.emit("transcript-stream", payload)?;
-  ```
-
-### 7.4 Grammar Cleanup Pipeline
+### 7.3 Grammar Cleanup Pipeline
 * The "Clean Up" module accepts the raw transcription string and executes a targeted prompt:
   ```
   [INST] System: You are an expert speech editor. Remove speech disfluencies, filler words (um, uh, like), fix punctuation, and correct casing. Retain original vocabulary and intent without editorial commentary.
@@ -363,7 +404,35 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
 
 ---
 
-## 8. Step-by-Step Execution Plan
+## 8. Live Event & Real-Time Streaming Architecture
+
+To handle large-scale live events, OmniScribe Edge transcends standard push-to-talk dictation. Live events necessitate capturing system audio (for virtual conferences like Zoom, Microsoft Teams, or YouTube Live), continuous sub-second text streaming (eliminating pauses between sentences), and local audience broadcasting.
+
+### 8.1 Advanced Audio Capture (System Audio vs. Microphone)
+* **The Problem:** Capturing physical microphone input is straightforward, but capturing a live virtual event (system audio) requires bypassing OS restrictions, particularly on macOS where loopback drivers typically require complex kernel installations.
+* **The Solution:** Dual-source audio selector integrated in the UI backed by native platform capture mechanisms:
+  * **Windows Implementation:** Utilizes Rust's `cpal` crate configured with WASAPI loopback mode (`AUDCLNT_STREAMFLAGS_LOOPBACK`). This records system output audio natively from the default render device without third-party virtual audio cables.
+  * **macOS Implementation:** Leverages Apple's native `ScreenCaptureKit` API via Rust bindings. This captures audio directly from specific running applications or global system output without requiring users to install third-party drivers like BlackHole or Soundflower.
+
+### 8.2 Continuous Sliding-Window Processing (Sub-Second Latency)
+* **The Problem:** Standard Voice Activity Detection (VAD) waits for a conversational pause before dispatching an audio chunk. During a keynote or presentation, a speaker may talk continuously for minutes without pausing, creating massive caption latency.
+* **The Solution:** A continuous sliding-window streaming architecture powered by `whisper.cpp` in stream mode:
+  * The Rust backend continuously feeds a 3-second sliding window of audio (stepped forward every 500ms) to the inference sidecar.
+  * The model outputs classified tokens:
+    * `[PARTIAL]` Tokens: Tentative words currently being predicted, displayed in real time in a muted, italicized style.
+    * `[FINAL]` Tokens: Confirmed sentence fragments locked into history and rendered in solid text.
+  * The React frontend dynamically reconciles active `[PARTIAL]` text, creating the immediate "live typing" effect standard in professional broadcasting.
+
+### 8.3 Audience Broadcasting & Presentation Mode
+* **The Problem:** Captions in hybrid or physical events are trapped on the operator's display. Audiences and livestream viewers require instant access.
+* **The Solution:** An embedded local broadcast module within the Tauri runtime:
+  * **Local WebSocket Server:** The Rust backend instantiates an asynchronous WebSocket server (`tokio-tungstenite`) bound to `ws://0.0.0.0:8080`.
+  * **OBS Studio Integration (Streamers):** The app serves a dedicated transparent route (`/broadcast`). Streamers paste `http://localhost:8080/broadcast` directly into an OBS Studio "Browser Source" to overlay transparent live subtitles with zero background artifacts.
+  * **QR Code Audience Mode (In-Person Events):** Clicking "Start Live Event Mode" resolves the host's local IP address (e.g., `http://192.168.1.45:8080/broadcast`) and generates a scannable QR code on the desktop interface. Audience members scan the code with their mobile devices to open an interactive, responsive live caption reader connected directly to the host over local Wi-Fi.
+
+---
+
+## 9. Step-by-Step AI Execution Plan
 
 ### Phase 1: Environment & Framework Initialization
 * Scaffold the Tauri v2 monorepo using React and TypeScript templates.
@@ -373,7 +442,7 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
 
 ### Phase 2: Global State & OS Integration
 * Integrate `@tauri-apps/plugin-global-shortcut` and configure standard OS triggers (`Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows).
-* Create an atomic state struct in Rust to guard recording lifecycle flags (`is_recording`, `is_processing`).
+* Create an atomic state struct in Rust to guard recording lifecycle flags (`is_recording`, `is_processing`, `audio_source`).
 * Implement bidirectional state synchronizers: Rust shortcuts emit events to React; UI clicks dispatch commands to Rust.
 * Configure window drag handlers via `data-tauri-drag-region` to allow free screen positioning.
 
@@ -406,11 +475,27 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
 * Implement dynamic hardware detection recommending either the Apple Silicon M-Series package (~185MB) or Windows package (~190MB).
 * Incorporate feature comparisons, architecture diagrams, and air-gapped security validations.
 
+### Phase 7: System Audio & Loopback Integration
+* Update the Rust audio module to enumerate and bind both Input Devices (Microphones) and Output Devices (System Audio).
+* Implement WASAPI loopback capture on Windows via `cpal` loopback device streams.
+* Implement native `ScreenCaptureKit` audio capture routing for macOS build targets without third-party drivers.
+* Add an audio source selector toggle in the React UI: "Mic Input" vs. "System Audio".
+
+### Phase 8: Streaming Token UI Implementation
+* Modify the Tauri event listener in React to parse typed payload objects: `{ type: "partial" | "final", text: string }`.
+* Build a rendering component that commits `[FINAL]` tokens to solid text blocks.
+* Append the active `[PARTIAL]` string to the active block with distinct transitional styling (opacity 0.5, italicized, fast transition) to create the sub-second live typing effect.
+
+### Phase 9: WebSocket Broadcaster & QR Code Generation
+* Embed a `tokio-tungstenite` asynchronous WebSocket server in the Rust runtime broadcasting `{ type, text }` payloads.
+* Build the `/broadcast` route in React featuring a transparent background (`rgba(0, 0, 0, 0)`) for direct embedding into OBS Studio Browser Sources.
+* Implement LAN IP resolution (e.g., `192.168.1.X`) and QR code SVG generation in Rust, rendering a scannable overlay modal when "Start Live Event Mode" is triggered.
+
 ---
 
-## 9. Compilation & Build Matrix
+## 10. Compilation & Build Matrix
 
-### 9.1 Compiling whisper.cpp Sidecars
+### 10.1 Compiling whisper.cpp Sidecars
 
 #### macOS (Apple Silicon M-Series with CoreML)
 ```bash
@@ -439,7 +524,7 @@ cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
 Copy-Item build\bin\Release\whisper-cli.exe ..\src-tauri\bin\whisper-sidecar-x86_64-pc-windows-msvc.exe
 ```
 
-### 9.2 Building the Desktop Application
+### 10.2 Building the Desktop Application
 ```bash
 # Install root workspace dependencies
 pnpm install
@@ -453,19 +538,21 @@ pnpm --filter desktop tauri build
 
 ---
 
-## 10. Privacy, Security & Air-Gap Compliance
+## 11. Privacy, Security & Air-Gap Compliance
 
 OmniScribe Edge is architected from first principles to be completely secure and self-contained:
 * **Zero Socket Outbound Traffic:** In standard mode, the core application opens zero external TCP or UDP sockets.
+* **Contained Local Broadcasting:** When Live Event Mode is active, the WebSocket server listens exclusively on the local interface or LAN subnet without external internet traversal.
 * **No Telemetry or Tracking:** No analytical beacons, crash reporters, or tracking identifiers are compiled into the binary.
 * **In-Memory Audio Processing:** Audio buffers are captured and analyzed exclusively in transient RAM. Audio is never written to disk, preventing forensic recovery of sensitive speech.
 * **Air-Gap Verification:** The software operates seamlessly on offline workstations, high-security enclaves, and disconnected enterprise machines.
 
 ---
 
-## 11. Verification & Acceptance Criteria
+## 12. Verification & Acceptance Criteria
 
 * **Storage Footprint:** Combined unpacked size of application bundle, whisper sidecar, and `tiny.en` model must not exceed 200MB.
-* **Latency Benchmark:** Transcription text must begin appearing in the UI within 800 milliseconds of speech cessation.
+* **Latency Benchmark:** Partial streaming tokens must appear in the UI within 350 milliseconds of vocalization; final sentence tokens within 800 milliseconds.
 * **Cold Start Time:** Initial application launch to listening readiness must complete in under 1.5 seconds.
 * **Resource Idle Consumption:** In standby mode, CPU consumption must remain below 0.2% and RAM usage below 45MB.
+* **Broadcast Latency:** WebSocket packet transit from host transcription to OBS and mobile browser clients must remain under 50 milliseconds on standard local Wi-Fi networks.
