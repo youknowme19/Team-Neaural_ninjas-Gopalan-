@@ -10,6 +10,28 @@ declare global {
   }
 }
 
+function downsampleTo16k(input: Float32Array, inputSampleRate: number): Float32Array {
+  if (inputSampleRate === 16000) return input;
+  const ratio = inputSampleRate / 16000;
+  const newLength = Math.round(input.length / ratio);
+  const result = new Float32Array(newLength);
+  let offsetResult = 0;
+  let offsetInput = 0;
+  while (offsetResult < result.length) {
+    const nextOffsetInput = Math.round((offsetResult + 1) * ratio);
+    let accum = 0;
+    let count = 0;
+    for (let i = offsetInput; i < nextOffsetInput && i < input.length; i++) {
+      accum += input[i];
+      count++;
+    }
+    result[offsetResult] = count > 0 ? accum / count : 0;
+    offsetResult++;
+    offsetInput = nextOffsetInput;
+  }
+  return result;
+}
+
 export function useAudioCapture(audioSource: "mic" | "target" | "system", targetPid: number | null) {
   const [isRecording, setIsRecording] = useState(false);
   const [sentences, setSentences] = useState<TranscriptSentence[]>([]);
@@ -31,6 +53,9 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const restartTimerRef = useRef<any>(null);
   const sseSourceRef = useRef<EventSource | null>(null);
 
+  const screenProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const screenSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+
   const audioSourceRef = useRef(audioSource);
   useEffect(() => {
     audioSourceRef.current = audioSource;
@@ -44,6 +69,116 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
+
+  // Pure digital screen audio chunker: captures raw PCM samples directly from screen track
+  const startScreenAudioChunker = useCallback((stream: MediaStream) => {
+    try {
+      if (stream.getAudioTracks().length === 0) return;
+
+      if (screenProcessorRef.current) {
+        screenProcessorRef.current.disconnect();
+        screenProcessorRef.current = null;
+      }
+      if (screenSourceNodeRef.current) {
+        screenSourceNodeRef.current.disconnect();
+        screenSourceNodeRef.current = null;
+      }
+
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtx();
+      }
+      const audioCtx = audioContextRef.current;
+
+      const sourceNode = audioCtx.createMediaStreamSource(stream);
+      screenSourceNodeRef.current = sourceNode;
+
+      // 4096 sample buffer processor
+      const processor = audioCtx.createScriptProcessor(4096, 1, 1);
+      screenProcessorRef.current = processor;
+
+      let chunkBuffers: Float32Array[] = [];
+      let totalSamples = 0;
+      const targetSampleRate = 16000;
+      const ctxSampleRate = audioCtx.sampleRate;
+      const samplesNeeded = targetSampleRate * 2; // 2.0 second chunks
+
+      processor.onaudioprocess = (e) => {
+        if (!isRecordingRef.current) return;
+
+        const inputData = e.inputBuffer.getChannelData(0);
+        const resampled = downsampleTo16k(inputData, ctxSampleRate);
+        const copy = new Float32Array(resampled.length);
+        copy.set(resampled);
+        chunkBuffers.push(copy);
+        totalSamples += copy.length;
+
+        if (totalSamples >= samplesNeeded) {
+          const merged = new Float32Array(totalSamples);
+          let offset = 0;
+          for (const b of chunkBuffers) {
+            merged.set(b, offset);
+            offset += b.length;
+          }
+          chunkBuffers = [];
+          totalSamples = 0;
+
+          // Reject silence: only send if amplitude is meaningful
+          let maxAmp = 0;
+          for (let i = 0; i < merged.length; i++) {
+            const abs = Math.abs(merged[i]);
+            if (abs > maxAmp) maxAmp = abs;
+          }
+          if (maxAmp < 0.015) return;
+
+          fetch("/api/screencapture/transcribe-chunk", {
+            method: "POST",
+            headers: { "Content-Type": "application/octet-stream" },
+            body: merged.buffer,
+          })
+            .then((r) => r.json())
+            .then((data) => {
+              const text = data.text?.trim() || "";
+              if (!text) return;
+
+              setSentences((prev) => [
+                ...prev,
+                {
+                  id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                  text: text,
+                  source: "window",
+                  timestamp: Date.now(),
+                },
+              ]);
+              setActivePartial({ text: text, source: "window" });
+              setTimeout(() => {
+                setActivePartial((cur) => (cur?.text === text ? null : cur));
+              }, 2500);
+            })
+            .catch(() => {});
+        }
+      };
+
+      sourceNode.connect(processor);
+      const silentGain = audioCtx.createGain();
+      silentGain.gain.value = 0;
+      processor.connect(silentGain);
+      silentGain.connect(audioCtx.destination);
+    } catch (e) {
+      console.warn("Screen audio chunker initialization failed:", e);
+    }
+  }, []);
+
+  const stopScreenAudioChunker = useCallback(() => {
+    if (screenProcessorRef.current) {
+      screenProcessorRef.current.disconnect();
+      screenProcessorRef.current = null;
+    }
+    if (screenSourceNodeRef.current) {
+      screenSourceNodeRef.current.disconnect();
+      screenSourceNodeRef.current = null;
+    }
+  }, []);
 
   // Connect to native macOS ScreenCaptureKit live transcription stream
   const startScreenCaptureKitStream = useCallback(() => {
@@ -107,7 +242,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     }
   }, []);
 
-  // Web Speech Recognition for live speech transcription (personal mic and screen audio)
+  // Web Speech Recognition: strictly for personal microphone dictation only
   const startWebSpeechRecognition = useCallback(() => {
     const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechClass) {
@@ -128,16 +263,11 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognition.lang = "en-US";
 
       recognition.onresult = (event: any) => {
+        // Discard microphone audio completely during screen share or target lock
         const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
-        const hasScreenAudio = Boolean(displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0);
-
-        // Screen audio gating: If a screen/tab audio track is actively connected,
-        // ignore ambient microphone room chatter when the screen video is silent.
-        if (isScreenMode && hasScreenAudio && displayAvgRef.current < 1.0) {
+        if (isScreenMode) {
           return;
         }
-
-        const sourceTag: "mic" | "window" = isScreenMode ? "window" : "mic";
 
         let interimText = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -151,7 +281,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
               {
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 text: text,
-                source: sourceTag,
+                source: "mic",
                 timestamp: Date.now(),
               },
             ]);
@@ -164,14 +294,14 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         if (interimText) {
           setActivePartial({
             text: interimText,
-            source: sourceTag,
+            source: "mic",
           });
         }
       };
 
       recognition.onerror = (e: any) => {
         console.warn("SpeechRecognition error:", e);
-        if (isRecordingRef.current) {
+        if (isRecordingRef.current && audioSourceRef.current === "mic" && displayStreamRef.current === null) {
           setTimeout(() => {
             if (isRecordingRef.current && recognitionRef.current) {
               try {
@@ -183,7 +313,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       };
 
       recognition.onend = () => {
-        if (isRecordingRef.current) {
+        if (isRecordingRef.current && audioSourceRef.current === "mic" && displayStreamRef.current === null) {
           setTimeout(() => {
             if (isRecordingRef.current && recognitionRef.current) {
               try {
@@ -213,13 +343,14 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         await audioCtx.resume();
       }
 
-      // Initialize microphone stream for speech recognition
-      if (navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
+      // Initialize microphone stream only for personal mic mode
+      const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
+      if (!isScreenMode && navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
+              echoCancellation: true,
+              noiseSuppression: true,
               autoGainControl: true,
             },
           });
@@ -235,7 +366,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect screen stream to analyser for live volume visualizer and gating
+      // Connect screen stream to analyser for live volume visualizer
       if (displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0) {
         try {
           const displaySource = audioCtx.createMediaStreamSource(displayStreamRef.current);
@@ -253,7 +384,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         let displayAvg = 0;
         const currentIsScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
 
-        if (micAnalyserRef.current) {
+        if (micAnalyserRef.current && !currentIsScreenMode) {
           const micBuf = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
           micAnalyserRef.current.getByteFrequencyData(micBuf);
           let sum = 0;
@@ -271,7 +402,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
         displayAvgRef.current = displayAvg;
 
-        // When in screen share or target lock, audio level visualizer reflects screen audio if available
         const activeAvg = currentIsScreenMode && displayAnalyserRef.current ? displayAvg : micAvg;
         const normalized = Math.min(1, activeAvg / 128);
         setAudioLevel(normalized);
@@ -309,32 +439,45 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setIsRecording(true);
     isRecordingRef.current = true;
 
-    // 1. Audio visualizer monitoring & mic stream acquisition
-    await startAudioMonitoring();
-
-    // 2. Continuous real-time speech recognition engine
-    startWebSpeechRecognition();
-
-    // 3. ScreenCaptureKit SSE stream (if native bridge is active)
     const isScreenMode = audioSource !== "mic" || displayStreamRef.current !== null;
+
     if (isScreenMode) {
+      // 1. Digital screen audio transcription (Zero mic noise)
+      if (displayStreamRef.current) {
+        startScreenAudioChunker(displayStreamRef.current);
+      }
       startScreenCaptureKitStream();
+
+      // Ensure microphone recognition is completely stopped
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+        recognitionRef.current = null;
+      }
+    } else {
+      // 2. Personal microphone dictation mode
+      startWebSpeechRecognition();
     }
 
-    // 4. Trigger Tauri Native Backend if running in desktop app
+    // Audio level visualizer monitoring
+    await startAudioMonitoring();
+
+    // Trigger Tauri Native Backend if running in desktop app
     try {
       await invoke("start_recording", {
         source: audioSource,
         targetPid: audioSource === "target" ? targetPid : null,
       });
     } catch (err) {}
-  }, [audioSource, targetPid, startAudioMonitoring, startWebSpeechRecognition, startScreenCaptureKitStream]);
+  }, [audioSource, targetPid, startAudioMonitoring, startWebSpeechRecognition, startScreenCaptureKitStream, startScreenAudioChunker]);
 
   const stop = useCallback(async () => {
     setIsRecording(false);
     isRecordingRef.current = false;
     setActivePartial(null);
 
+    stopScreenAudioChunker();
     stopScreenCaptureKitStream();
 
     if (recognitionRef.current) {
@@ -349,7 +492,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     try {
       await invoke("stop_recording");
     } catch {}
-  }, [stopAudioMonitoring, stopScreenCaptureKitStream]);
+  }, [stopAudioMonitoring, stopScreenCaptureKitStream, stopScreenAudioChunker]);
 
   // Google Meet-style Screen & Window Picker
   const pickDisplayMedia = useCallback(async () => {
@@ -401,7 +544,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Automatically initiate live recording
+      // Automatically initiate live recording and digital screen audio chunker
+      if (hasAudio) {
+        startScreenAudioChunker(stream);
+      }
       start();
 
       videoTrack.onended = () => {
@@ -410,9 +556,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     } catch (err) {
       console.warn("Screen/Window selection canceled or failed:", err);
     }
-  }, [start]);
+  }, [start, startScreenAudioChunker]);
 
   const stopDisplayMedia = useCallback(() => {
+    stopScreenAudioChunker();
     if (displayStreamRef.current) {
       displayStreamRef.current.getTracks().forEach((t) => t.stop());
       displayStreamRef.current = null;
@@ -422,7 +569,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setTargetStreamLabel(null);
     displayAnalyserRef.current = null;
     displayAvgRef.current = 0;
-  }, []);
+  }, [stopScreenAudioChunker]);
 
   const toggle = useCallback(() => {
     if (isRecording) {
@@ -481,8 +628,9 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       if (unlistenState) unlistenState();
       stopAudioMonitoring();
       stopScreenCaptureKitStream();
+      stopScreenAudioChunker();
     };
-  }, [start, stop, stopAudioMonitoring, stopScreenCaptureKitStream]);
+  }, [start, stop, stopAudioMonitoring, stopScreenCaptureKitStream, stopScreenAudioChunker]);
 
   return {
     isRecording,
