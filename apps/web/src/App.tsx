@@ -35,6 +35,7 @@ import {
   Lock,
   ArrowRight
 } from 'lucide-react';
+import { LiveSpeakLogo } from '../components/LiveSpeakLogo';
 
 export function App() {
   const [activeMode, setActiveMode] = useState<'dictation' | 'live-events'>('dictation');
@@ -134,25 +135,12 @@ export function App() {
       }}>
         <div className="container-1200" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', height: '76px' }}>
           {/* Brand Logo */}
-          <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-            <div style={{ 
-              width: '40px', 
-              height: '40px', 
-              borderRadius: '12px', 
-              background: 'linear-gradient(135deg, #1C1917 0%, #383430 100%)', 
-              display: 'flex', 
-              alignItems: 'center', 
-              justifyContent: 'center',
-              boxShadow: '0 4px 12px rgba(28, 25, 23, 0.15)'
-            }}>
-              <Zap size={20} color="#FAF8F4" strokeWidth={2.5} />
-            </div>
-            <div>
-              <span style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-                LiveSpeak <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Edge</span>
-              </span>
-            </div>
-          </div>
+          <a href="#" style={{ textDecoration: 'none', display: 'inline-flex', alignItems: 'center' }}>
+            <LiveSpeakLogo size={32} animate="hover" color="#1C1917" textColor="#1C1917" />
+            <span style={{ fontSize: '13px', fontWeight: 600, color: 'var(--text-muted)', marginLeft: '6px', background: 'var(--pastel-mint)', padding: '2px 8px', borderRadius: '9999px' }}>
+              Edge
+            </span>
+          </a>
 
           {/* Centered Pill Toggle: Dictation | Live Events */}
           <nav aria-label="Product modes" style={{ 
@@ -2870,21 +2858,10 @@ export function App() {
           overflow: 'hidden'
         }}>
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: '64px' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '12px' }}>
-              <div style={{ 
-                width: '36px', 
-                height: '36px', 
-                borderRadius: '10px', 
-                background: 'var(--primary-accent)', 
-                display: 'flex', 
-                alignItems: 'center', 
-                justifyContent: 'center',
-                color: '#FAF8F4'
-              }}>
-                <Zap size={18} strokeWidth={2.5} />
-              </div>
-              <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                LiveSpeak <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Edge</span>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+              <LiveSpeakLogo size={28} animate="off" color="#1C1917" textColor="#1C1917" />
+              <span style={{ fontSize: '12px', fontWeight: 600, color: 'var(--text-muted)', background: 'var(--pastel-mint)', padding: '2px 8px', borderRadius: '9999px' }}>
+                Edge
               </span>
             </div>
 
