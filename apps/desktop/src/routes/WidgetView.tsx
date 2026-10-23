@@ -31,6 +31,9 @@ export const WidgetView: React.FC = () => {
     isRecording,
     sentences,
     activePartial,
+    audioLevel,
+    targetStreamLabel,
+    pickDisplayMedia,
     toggle: toggleRecording,
     clearTranscript,
   } = useAudioCapture(audioSource, selectedPid);
@@ -68,6 +71,8 @@ export const WidgetView: React.FC = () => {
         <TargetDropdown
           windows={windows}
           selectedPid={selectedPid}
+          targetStreamLabel={targetStreamLabel}
+          onPickDisplayMedia={pickDisplayMedia}
           onSelect={setSelectedPid}
           onRefresh={refreshWindows}
           loading={windowsLoading}
@@ -80,10 +85,11 @@ export const WidgetView: React.FC = () => {
         onToggle={toggleRecording}
       />
 
-      {/* Soundwave Visualizer */}
+      {/* Soundwave Visualizer Driven by Real Vocal Audio Level */}
       <AudioVisualizer
         isRecording={isRecording}
         source={audioSource}
+        audioLevel={audioLevel}
       />
 
       {/* Diarized Streaming Subtitles */}
