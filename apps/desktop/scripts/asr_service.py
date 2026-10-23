@@ -8,9 +8,9 @@ from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import torch
 from transformers import pipeline
 
-print("Initializing multilingual Whisper ASR pipeline on Apple Silicon...")
-device = "mps" if torch.backends.mps.is_available() else "cpu"
-dtype = torch.float16 if device == "mps" else torch.float32
+print("Initializing multilingual Whisper ASR pipeline (optimized CPU FP32)...")
+device = "cpu"
+dtype = torch.float32
 
 asr = pipeline(
     "automatic-speech-recognition",
@@ -19,14 +19,6 @@ asr = pipeline(
     dtype=dtype,
 )
 
-# Warm up Metal GPU shaders for zero-latency execution
-print("Warming up Apple Silicon Metal GPU shaders...")
-warmup_dummy = np.zeros(16000, dtype=np.float32)
-with torch.inference_mode():
-    asr(
-        {"sampling_rate": 16000, "raw": warmup_dummy},
-        generate_kwargs={"task": "transcribe"},
-    )
 print(f"Whisper Multilingual ASR ready on device: {device} ({dtype})")
 
 HALLUCINATION_EXACT = {
@@ -115,7 +107,6 @@ class FastASRHandler(BaseHTTPRequestHandler):
             try:
                 generate_kwargs = {
                     "task": task,
-                    "condition_on_previous_text": False,
                 }
                 if lang and lang != "auto":
                     generate_kwargs["language"] = lang
@@ -128,13 +119,12 @@ class FastASRHandler(BaseHTTPRequestHandler):
 
                 raw_text = result.get("text", "").strip()
                 cleaned_text = deduplicate_repetitions(raw_text)
+                is_clean = is_clean_transcript(cleaned_text)
+                print(f"[ASR] raw={repr(raw_text)} cleaned={repr(cleaned_text)} is_clean={is_clean}")
+                sys.stdout.flush()
 
-                if not is_clean_transcript(cleaned_text):
+                if not is_clean:
                     cleaned_text = ""
-
-                if cleaned_text:
-                    print(f"[ASR] Recognized: {cleaned_text}")
-                    sys.stdout.flush()
 
                 resp = json.dumps({"text": cleaned_text}).encode("utf-8")
                 self.send_response(200)
@@ -142,6 +132,8 @@ class FastASRHandler(BaseHTTPRequestHandler):
                 self.end_headers()
                 self.wfile.write(resp)
             except Exception as e:
+                print(f"[ASR-ERROR] {e}")
+                sys.stdout.flush()
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
