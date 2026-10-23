@@ -36,6 +36,7 @@ import {
   ArrowRight
 } from 'lucide-react';
 import { LiveSpeakLogo } from '../components/LiveSpeakLogo';
+import './index.css';
 
 export function App() {
   const [activeMode, setActiveMode] = useState<'dictation' | 'live-events'>('dictation');

@@ -31,9 +31,9 @@
   --primary-accent-hover: #292524;
 
   /* Typography */
-  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-  --font-serif-italic: 'Newsreader', Georgia, serif;
-  --font-mono: 'JetBrains Mono', monospace;
+  --font-sans: var(--font-plus-jakarta), 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-serif-italic: var(--font-playfair), 'Playfair Display', Georgia, serif;
+  --font-mono: var(--font-jetbrains), 'JetBrains Mono', monospace;
 
   /* Shadows */
   --shadow-sm: 0 2px 6px -1px rgba(28, 25, 23, 0.04), 0 1px 3px -1px rgba(28, 25, 23, 0.02);
