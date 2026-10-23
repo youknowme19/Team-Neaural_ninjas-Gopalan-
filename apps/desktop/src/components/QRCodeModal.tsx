@@ -1,5 +1,5 @@
 import React from "react";
-import { X, ExternalLink, QrCode, Monitor } from "lucide-react";
+import { X, QrCode, Monitor } from "lucide-react";
 import { QrCodeResponse } from "../types/window";
 
 interface QRCodeModalProps {
