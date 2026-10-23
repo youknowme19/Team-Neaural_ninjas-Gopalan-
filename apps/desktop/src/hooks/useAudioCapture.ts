@@ -99,22 +99,49 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
       let chunkBuffers: Float32Array[] = [];
       let totalSamples = 0;
+      let consecutiveSilenceFrames = 0;
+      let consecutiveSpeechFrames = 0;
       const targetSampleRate = 16000;
       const ctxSampleRate = audioCtx.sampleRate;
-      const samplesNeeded = Math.round(targetSampleRate * 1.0); // 1.0 second low-latency window
-      const overlapSamples = Math.round(targetSampleRate * 0.2); // 0.2s boundary overlap
+      const minSpeechSamples = Math.round(targetSampleRate * 1.5); // 1.5s minimum coherent phrase
+      const maxSpeechSamples = Math.round(targetSampleRate * 3.5); // 3.5s maximum sentence buffer
+      const overlapSamples = Math.round(targetSampleRate * 0.15); // 150ms boundary overlap
 
       processor.onaudioprocess = (e) => {
         if (!isRecordingRef.current) return;
 
         const inputData = e.inputBuffer.getChannelData(0);
         const resampled = downsampleTo16k(inputData, ctxSampleRate);
-        const copy = new Float32Array(resampled.length);
-        copy.set(resampled);
-        chunkBuffers.push(copy);
-        totalSamples += copy.length;
 
-        if (totalSamples >= samplesNeeded) {
+        // Fast RMS energy calculation
+        let sumSq = 0;
+        for (let i = 0; i < resampled.length; i++) {
+          sumSq += resampled[i] * resampled[i];
+        }
+        const rms = Math.sqrt(sumSq / resampled.length);
+        const isSpeech = rms > 0.012;
+
+        if (isSpeech) {
+          consecutiveSpeechFrames++;
+          consecutiveSilenceFrames = 0;
+        } else {
+          consecutiveSpeechFrames = 0;
+          consecutiveSilenceFrames++;
+        }
+
+        // Only accumulate if speech has started or if preserving trailing context
+        if (isSpeech || totalSamples > 0) {
+          const copy = new Float32Array(resampled.length);
+          copy.set(resampled);
+          chunkBuffers.push(copy);
+          totalSamples += copy.length;
+        }
+
+        // Natural pause boundary (350ms pause after speech) OR reached max sentence length (3.5s)
+        const isNaturalPause = consecutiveSilenceFrames >= 4 && totalSamples >= minSpeechSamples;
+        const isMaxDuration = totalSamples >= maxSpeechSamples;
+
+        if (isNaturalPause || isMaxDuration) {
           const merged = new Float32Array(totalSamples);
           let offset = 0;
           for (const b of chunkBuffers) {
@@ -122,18 +149,20 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
             offset += b.length;
           }
 
-          // Retain trailing overlap samples to prevent boundary speech truncation
+          // Retain trailing 150ms for acoustic continuity across phrases
           const remainingOverlap = merged.slice(Math.max(0, totalSamples - overlapSamples));
           chunkBuffers = [remainingOverlap];
           totalSamples = remainingOverlap.length;
+          consecutiveSilenceFrames = 0;
+          consecutiveSpeechFrames = 0;
 
-          // Energy check: reject silence at zero network cost
+          // Reject silence: only send if amplitude is meaningful
           let maxAmp = 0;
           for (let i = 0; i < merged.length; i++) {
             const abs = Math.abs(merged[i]);
             if (abs > maxAmp) maxAmp = abs;
           }
-          if (maxAmp < 0.012) return;
+          if (maxAmp < 0.014) return;
 
           fetch("/api/screencapture/transcribe-chunk", {
             method: "POST",
@@ -143,12 +172,12 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
             .then((r) => r.json())
             .then((data) => {
               const text = data.text?.trim() || "";
-              if (!text || text.length < 2) return;
+              if (!text || text.length < 3) return;
 
               // Deduplicate identical sequential phrases from sliding overlap
               const prev = lastTranscribedTextRef.current.toLowerCase();
               const curr = text.toLowerCase();
-              if (prev === curr || (prev.length > 5 && curr.includes(prev))) {
+              if (prev === curr || (prev.length > 8 && curr.includes(prev))) {
                 return;
               }
 
@@ -166,7 +195,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
               setActivePartial({ text: text, source: "window" });
               setTimeout(() => {
                 setActivePartial((cur) => (cur?.text === text ? null : cur));
-              }, 2000);
+              }, 3000);
             })
             .catch(() => {});
         }
