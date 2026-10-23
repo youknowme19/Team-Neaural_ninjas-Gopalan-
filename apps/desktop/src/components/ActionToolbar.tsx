@@ -1,5 +1,5 @@
 import React, { useState } from "react";
-import { Copy, Trash2, Radio, Check } from "lucide-react";
+import { Copy, Trash2, Radio, Check, PictureInPicture2 } from "lucide-react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { TranscriptSentence } from "../types/transcript";
 
@@ -8,6 +8,8 @@ interface ActionToolbarProps {
   onClear: () => void;
   onOpenBroadcast: () => void;
   isBroadcasting: boolean;
+  onTogglePiP?: () => void;
+  isPipActive?: boolean;
 }
 
 export const ActionToolbar: React.FC<ActionToolbarProps> = ({
@@ -15,6 +17,8 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
   onClear,
   onOpenBroadcast,
   isBroadcasting,
+  onTogglePiP,
+  isPipActive = false,
 }) => {
   const [copied, setCopied] = useState(false);
 
@@ -64,6 +68,21 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
         >
           <Trash2 className="w-3.5 h-3.5" />
         </button>
+
+        {onTogglePiP && (
+          <button
+            onClick={onTogglePiP}
+            className={`px-2 py-1.5 rounded-lg flex items-center gap-1 transition-all ${
+              isPipActive
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-medium shadow-sm"
+                : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5"
+            }`}
+            title="Pop out floating subtitles window over your movie (Google Meet style)"
+          >
+            <PictureInPicture2 className={`w-3.5 h-3.5 ${isPipActive ? "text-emerald-400" : ""}`} />
+            <span className="text-[11px]">{isPipActive ? "PiP Active" : "PiP"}</span>
+          </button>
+        )}
       </div>
 
       {/* Live Event Broadcast Trigger */}

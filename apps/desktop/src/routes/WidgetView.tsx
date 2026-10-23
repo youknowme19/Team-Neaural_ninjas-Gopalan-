@@ -1,8 +1,10 @@
 import React, { useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { Cast } from "lucide-react";
 import { GlassContainer } from "../components/GlassContainer";
 import { AudioSourceToggle } from "../components/AudioSourceToggle";
 import { TargetDropdown } from "../components/TargetDropdown";
+import { ScreenSharePreview } from "../components/ScreenSharePreview";
 import { RecordButton } from "../components/RecordButton";
 import { AudioVisualizer } from "../components/AudioVisualizer";
 import { DiarizedTranscript } from "../components/DiarizedTranscript";
@@ -10,6 +12,7 @@ import { ActionToolbar } from "../components/ActionToolbar";
 import { QRCodeModal } from "../components/QRCodeModal";
 import { useActiveWindows } from "../hooks/useActiveWindows";
 import { useAudioCapture } from "../hooks/useAudioCapture";
+import { usePictureInPicture } from "../hooks/usePictureInPicture";
 import { QrCodeResponse } from "../types/window";
 
 export const WidgetView: React.FC = () => {
@@ -33,10 +36,15 @@ export const WidgetView: React.FC = () => {
     activePartial,
     audioLevel,
     targetStreamLabel,
+    displayStream,
+    hasDisplayAudio,
     pickDisplayMedia,
+    stopDisplayMedia,
     toggle: toggleRecording,
     clearTranscript,
   } = useAudioCapture(audioSource, selectedPid);
+
+  const { isPipActive, togglePiP } = usePictureInPicture(sentences, activePartial);
 
   const handleOpenBroadcast = async () => {
     setIsQrModalOpen(true);
@@ -79,13 +87,43 @@ export const WidgetView: React.FC = () => {
         />
       )}
 
+      {/* System Audio Screen Share Trigger (When in System mode and no active stream) */}
+      {audioSource === "system" && !displayStream && (
+        <button
+          onClick={pickDisplayMedia}
+          className="w-full flex items-center justify-between px-3 py-2 rounded-xl bg-purple-950/40 border border-purple-500/30 hover:border-purple-500/60 text-xs transition-all shadow-sm no-drag"
+        >
+          <div className="flex items-center gap-2 truncate">
+            <Cast className="w-4 h-4 text-purple-400 shrink-0 animate-pulse" />
+            <span className="text-slate-200">
+              Share Movie / Screen <span className="text-slate-400 text-[10px]">(Google Meet Style)</span>
+            </span>
+          </div>
+          <span className="text-[10px] font-mono bg-purple-500/20 text-purple-300 px-1.5 py-0.5 rounded border border-purple-500/30">
+            SHARE
+          </span>
+        </button>
+      )}
+
+      {/* Google Meet-Style Shared Screen Miniature Preview with PiP Pop-out */}
+      {displayStream && (
+        <ScreenSharePreview
+          stream={displayStream}
+          label={targetStreamLabel}
+          onStop={stopDisplayMedia}
+          onTogglePiP={togglePiP}
+          isPipActive={isPipActive}
+          hasAudio={hasDisplayAudio}
+        />
+      )}
+
       {/* Central Hardware Action Button */}
       <RecordButton
         isRecording={isRecording}
         onToggle={toggleRecording}
       />
 
-      {/* Soundwave Visualizer Driven by Real Vocal Audio Level */}
+      {/* Soundwave Visualizer Driven by Real Vocal and Movie Audio Level */}
       <AudioVisualizer
         isRecording={isRecording}
         source={audioSource}
@@ -98,12 +136,14 @@ export const WidgetView: React.FC = () => {
         activePartial={activePartial}
       />
 
-      {/* Controls: Copy, Clear, and Live Broadcast */}
+      {/* Controls: Copy, Clear, Floating PiP Subtitles, and Live Broadcast */}
       <ActionToolbar
         sentences={sentences}
         onClear={clearTranscript}
         onOpenBroadcast={handleOpenBroadcast}
         isBroadcasting={isBroadcasting}
+        onTogglePiP={togglePiP}
+        isPipActive={isPipActive}
       />
 
       {/* Audience LAN Broadcast QR Modal */}

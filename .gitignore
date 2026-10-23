@@ -5,7 +5,8 @@
 .Trashes
 
 # Node / Web dependencies
-node_modules/
+node_modules
+**/node_modules
 .next/
 out/
 dist/
