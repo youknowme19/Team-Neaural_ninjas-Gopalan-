@@ -1,6 +1,5 @@
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Command, Stdio};
+use std::process::Command;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter};
 use crate::engine::parser::TokenParser;
@@ -18,9 +17,36 @@ impl WhisperSidecarManager {
             .and_then(|p| p.parent().map(|d| d.to_path_buf()))
             .unwrap_or_else(|| PathBuf::from("."));
 
+        let binary_candidates = [
+            base_dir.join("bin/whisper-sidecar-aarch64-apple-darwin"),
+            PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/bin/whisper-sidecar-aarch64-apple-darwin"),
+            PathBuf::from("src-tauri/bin/whisper-sidecar-aarch64-apple-darwin"),
+            PathBuf::from("bin/whisper-sidecar-aarch64-apple-darwin"),
+        ];
+
+        let binary_path = binary_candidates
+            .iter()
+            .find(|p| p.exists())
+            .cloned()
+            .unwrap_or_else(|| binary_candidates[0].clone());
+
+        let model_candidates = [
+            base_dir.join("models/ggml-tiny.bin"),
+            PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/models/ggml-tiny.bin"),
+            PathBuf::from("src-tauri/models/ggml-tiny.bin"),
+            PathBuf::from("models/ggml-tiny.bin"),
+            base_dir.join("models/ggml-tiny.en-q5_1.bin"),
+        ];
+
+        let model_path = model_candidates
+            .iter()
+            .find(|p| p.exists())
+            .cloned()
+            .unwrap_or_else(|| model_candidates[0].clone());
+
         Self {
-            model_path: base_dir.join("models/ggml-tiny.en-q5_1.bin"),
-            binary_path: base_dir.join("bin/whisper-sidecar-aarch64-apple-darwin"),
+            model_path,
+            binary_path,
         }
     }
 
@@ -34,46 +60,41 @@ impl WhisperSidecarManager {
         let parser = TokenParser::new();
 
         if self.binary_path.exists() && self.model_path.exists() {
-            // Real whisper.cpp sidecar invocation
-            let mut child = match Command::new(&self.binary_path)
-                .arg("--model")
-                .arg(&self.model_path)
-                .arg("--step")
-                .arg("500")
-                .arg("--length")
-                .arg("3000")
-                .arg("-t")
-                .arg("4")
-                .arg("-np")
-                .arg("-nt")
-                .arg("-")
-                .stdin(Stdio::piped())
-                .stdout(Stdio::piped())
-                .stderr(Stdio::null())
-                .spawn()
-            {
-                Ok(c) => c,
-                Err(e) => {
-                    eprintln!("Failed to spawn whisper sidecar: {}", e);
-                    return;
-                }
-            };
+            let temp_dir = std::env::temp_dir();
+            let chunk_file = temp_dir.join(format!(
+                "livespeak_chunk_{}_{}.wav",
+                std::process::id(),
+                std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+            ));
 
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(wav_bytes);
-            }
-
-            if let Some(stdout) = child.stdout.take() {
-                let reader = BufReader::new(stdout);
-                for line in reader.lines().flatten() {
-                    if let Some(payload) = parser.parse_line(&line, source) {
-                        let _ = app_handle.emit("token-stream", &payload);
-                        let _ = state.broadcast_channel.send(payload);
+            if std::fs::write(&chunk_file, wav_bytes).is_ok() {
+                if let Ok(output) = Command::new(&self.binary_path)
+                    .arg("--model")
+                    .arg(&self.model_path)
+                    .arg("-f")
+                    .arg(&chunk_file)
+                    .arg("-l")
+                    .arg("auto")
+                    .arg("-t")
+                    .arg("4")
+                    .arg("--no-timestamps")
+                    .output()
+                {
+                    let _ = std::fs::remove_file(&chunk_file);
+                    let stdout_str = String::from_utf8_lossy(&output.stdout);
+                    for line in stdout_str.lines() {
+                        if let Some(payload) = parser.parse_line(&line, source) {
+                            let _ = app_handle.emit("token-stream", &payload);
+                            let _ = state.broadcast_channel.send(payload);
+                        }
                     }
+                } else {
+                    let _ = std::fs::remove_file(&chunk_file);
                 }
             }
-
-            let _ = child.wait();
         } else {
             // Live simulation fallback if binary/model not downloaded yet
             let mock_text = match source {

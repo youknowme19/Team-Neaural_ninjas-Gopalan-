@@ -3,6 +3,8 @@ import react from "@vitejs/plugin-react";
 import { spawn } from "child_process";
 import path from "path";
 import http from "http";
+import fs from "fs";
+import os from "os";
 
 export default defineConfig({
   plugins: [
@@ -72,7 +74,7 @@ export default defineConfig({
           });
         });
 
-        // Endpoint 3: Direct digital screen audio chunk transcription (Zero mic noise)
+        // Endpoint 3: Direct digital screen audio chunk transcription via native whisper.cpp
         server.middlewares.use("/api/screencapture/transcribe-chunk", (req, res) => {
           if (req.method !== "POST") {
             res.statusCode = 405;
@@ -81,35 +83,105 @@ export default defineConfig({
           }
 
           const incomingUrl = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
-          const targetPath = `/transcribe${incomingUrl.search || ""}`;
+          const lang = incomingUrl.searchParams.get("lang") || "auto";
+          const task = incomingUrl.searchParams.get("task") || "transcribe";
 
-          const proxyHeaders: Record<string, string> = {
-            "Content-Type": "application/octet-stream",
-          };
-          if (req.headers["content-length"]) {
-            proxyHeaders["Content-Length"] = String(req.headers["content-length"]);
-          }
+          const whisperBin = path.resolve(__dirname, "src-tauri/bin/whisper-sidecar-aarch64-apple-darwin");
+          const modelPath = path.resolve(__dirname, "src-tauri/models/ggml-tiny.bin");
 
-          const proxyReq = http.request(
-            {
-              hostname: "127.0.0.1",
-              port: 5174,
-              path: targetPath,
-              method: "POST",
-              headers: proxyHeaders,
-            },
-            (proxyRes) => {
-              res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
-              proxyRes.pipe(res);
+          const chunks: Buffer[] = [];
+          req.on("data", (c) => chunks.push(c));
+          req.on("end", () => {
+            const raw = Buffer.concat(chunks);
+            if (raw.length < 9600) {
+              res.setHeader("Content-Type", "application/json");
+              res.end(JSON.stringify({ text: "" }));
+              return;
             }
-          );
 
-          proxyReq.on("error", () => {
-            res.writeHead(200, { "Content-Type": "application/json" });
-            res.end(JSON.stringify({ text: "" }));
+            if (fs.existsSync(whisperBin) && fs.existsSync(modelPath)) {
+              // Native whisper.cpp Metal GPU execution
+              const tempWav = path.join(os.tmpdir(), `livespeak_chunk_${Date.now()}_${Math.random().toString(36).slice(2, 6)}.wav`);
+              const header = Buffer.alloc(44);
+              header.write("RIFF", 0);
+              header.writeUInt32LE(36 + raw.length, 4);
+              header.write("WAVE", 8);
+              header.write("fmt ", 12);
+              header.writeUInt32LE(16, 16);
+              header.writeUInt16LE(3, 20); // IEEE Float
+              header.writeUInt16LE(1, 22); // Mono
+              header.writeUInt32LE(16000, 24);
+              header.writeUInt32LE(64000, 28);
+              header.writeUInt16LE(4, 32);
+              header.writeUInt16LE(32, 34);
+              header.write("data", 36);
+              header.writeUInt32LE(raw.length, 40);
+
+              fs.writeFileSync(tempWav, Buffer.concat([header, raw]));
+
+              const args = [
+                "-m", modelPath,
+                "-f", tempWav,
+                "-l", lang,
+                "-t", "4",
+                "--no-timestamps",
+              ];
+              if (task === "translate") {
+                args.push("-tr");
+              }
+
+              const binDir = path.dirname(whisperBin);
+              const child = spawn(whisperBin, args, {
+                cwd: binDir,
+                env: {
+                  ...process.env,
+                  DYLD_LIBRARY_PATH: `${binDir}:${process.env.DYLD_LIBRARY_PATH || ""}`,
+                },
+              });
+              let output = "";
+              child.stdout.on("data", (d) => { output += d.toString(); });
+              child.on("close", () => {
+                try { fs.unlinkSync(tempWav); } catch {}
+                const text = output.trim();
+                res.setHeader("Content-Type", "application/json");
+                res.end(JSON.stringify({ text }));
+              });
+              child.on("error", () => {
+                try { fs.unlinkSync(tempWav); } catch {}
+                res.setHeader("Content-Type", "application/json");
+                res.end(JSON.stringify({ text: "" }));
+              });
+              return;
+            }
+
+            // Fallback: proxy to Python ASR worker
+            const targetPath = `/transcribe${incomingUrl.search || ""}`;
+            const proxyHeaders: Record<string, string> = {
+              "Content-Type": "application/octet-stream",
+              "Content-Length": String(raw.length),
+            };
+
+            const proxyReq = http.request(
+              {
+                hostname: "127.0.0.1",
+                port: 5174,
+                path: targetPath,
+                method: "POST",
+                headers: proxyHeaders,
+              },
+              (proxyRes) => {
+                res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);
+                proxyRes.pipe(res);
+              }
+            );
+
+            proxyReq.on("error", () => {
+              res.writeHead(200, { "Content-Type": "application/json" });
+              res.end(JSON.stringify({ text: "" }));
+            });
+
+            proxyReq.end(raw);
           });
-
-          req.pipe(proxyReq);
         });
       },
     },
