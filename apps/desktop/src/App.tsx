@@ -1,13 +1,20 @@
-import React, { useState } from 'react';
+import React from 'react';
 import { WidgetView } from './routes/WidgetView';
 import { BroadcastView } from './routes/BroadcastView';
+import { CaptionOverlayView } from './routes/CaptionOverlayView';
 
 export default function App() {
-  const isBroadcast = window.location.pathname.includes('/broadcast') || window.location.search.includes('view=broadcast');
+  const urlParams = new URLSearchParams(window.location.search);
+  const view = urlParams.get('view');
+  const pathname = window.location.pathname;
 
-  return (
-    <div className="w-full h-full">
-      {isBroadcast ? <BroadcastView /> : <WidgetView />}
-    </div>
-  );
+  if (view === 'overlay' || pathname.includes('/overlay')) {
+    return <CaptionOverlayView />;
+  }
+
+  if (view === 'broadcast' || pathname.includes('/broadcast')) {
+    return <BroadcastView />;
+  }
+
+  return <WidgetView />;
 }
