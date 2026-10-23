@@ -80,11 +80,14 @@ export default defineConfig({
             return;
           }
 
+          const incomingUrl = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
+          const targetPath = `/transcribe${incomingUrl.search || ""}`;
+
           const proxyReq = http.request(
             {
               hostname: "127.0.0.1",
               port: 5174,
-              path: "/transcribe",
+              path: targetPath,
               method: "POST",
               headers: {
                 "Content-Type": "application/octet-stream",

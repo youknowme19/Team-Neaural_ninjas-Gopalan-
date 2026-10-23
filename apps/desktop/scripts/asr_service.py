@@ -2,12 +2,13 @@ import sys
 import json
 import zlib
 import re
+import urllib.parse
 import numpy as np
 from http.server import ThreadingHTTPServer, BaseHTTPRequestHandler
 import torch
 from transformers import pipeline
 
-print("Initializing accelerated Whisper ASR pipeline on Apple Silicon...")
+print("Initializing multilingual Whisper ASR pipeline on Apple Silicon...")
 device = "mps" if torch.backends.mps.is_available() else "cpu"
 dtype = torch.float16 if device == "mps" else torch.float32
 
@@ -18,54 +19,57 @@ asr = pipeline(
     dtype=dtype,
 )
 
-# Pre-compile Metal shaders with warmup pass for 0ms cold-start latency
+# Warm up Metal GPU shaders for zero-latency execution
 print("Warming up Apple Silicon Metal GPU shaders...")
 warmup_dummy = np.zeros(16000, dtype=np.float32)
 with torch.inference_mode():
     asr(
         {"sampling_rate": 16000, "raw": warmup_dummy},
-        generate_kwargs={
-            "task": "transcribe",
-            "language": "en",
-            "no_repeat_ngram_size": 3,
-            "repetition_penalty": 1.3,
-        },
+        generate_kwargs={"task": "transcribe"},
     )
-print(f"Whisper ASR ready on device: {device} ({dtype}) with zero-latency pre-compilation")
+print(f"Whisper Multilingual ASR ready on device: {device} ({dtype})")
 
 HALLUCINATION_EXACT = {
     ".", "..", "...", "you", "Thank you.", "Thank you", "bye", "Bye.",
     "Subtitle by", "[music]", "(music)", "music", "[applause]", "(applause)",
-    "Thanks for watching!", "Please subscribe", "MBC 뉴스",
+    "Thanks for watching!", "Please subscribe", "MBC News",
 }
 
+def deduplicate_repetitions(text: str) -> str:
+    # 1. Deduplicate single repeated words (Latin and Devanagari)
+    cleaned = re.sub(r'\b(\w+)[,\.]?(?:\s+\1[,\.]?)+\b', r'\1', text, flags=re.IGNORECASE | re.UNICODE)
+    # 2. Devanagari specific single-word repetition
+    cleaned = re.sub(r'(?:^|\s)([\u0900-\u097f]+[,\.]?)(?:\s+\1[,\.]?)+(?=\s|$)', r' \1', cleaned)
+    # 3. Deduplicate 2-word phrase repetitions
+    cleaned = re.sub(r'(\b\w+\s+\w+[\.,?!]?)(?:\s+\1)+', r'\1', cleaned, flags=re.IGNORECASE | re.UNICODE)
+    # 4. Deduplicate 3-word phrase repetitions
+    cleaned = re.sub(r'(\b\w+\s+\w+\s+\w+[\.,?!]?)(?:\s+\1)+', r'\1', cleaned, flags=re.IGNORECASE | re.UNICODE)
+    # 5. Collapse excessive dots
+    cleaned = re.sub(r'\.{3,}', '...', cleaned)
+    return cleaned.strip()
+
 def is_clean_transcript(text: str) -> bool:
-    if not text or len(text.strip()) < 3:
+    if not text or len(text.strip()) < 2:
         return False
 
     cleaned = text.strip()
     if cleaned in HALLUCINATION_EXACT:
         return False
 
-    # Foreign non-Latin script filter (Korean, Chinese, Japanese, Cyrillic, Arabic)
-    if re.search(r'[\uac00-\ud7af\u1100-\u11ff\u3040-\u30ff\u4e00-\u9fff\u0600-\u06ff\u0400-\u04ff]', cleaned):
+    # Foreign hallucinated Asian script filter on non-Asian speech
+    # Rejects Korean, Chinese, Japanese glyphs that Whisper hallucinates on background silence
+    if re.search(r'[\uac00-\ud7af\u1100-\u11ff\u3040-\u30ff\u4e00-\u9fff]', cleaned):
         return False
 
-    # Excessive character repetitions (e.g. '........' or 'haaaa')
-    if re.search(r'(.)\1{3,}', cleaned):
+    # Excessive character repetitions
+    if re.search(r'(.)\1{4,}', cleaned):
         return False
 
-    # Zlib compression ratio (detects loops like "Good morning. Good morning. Good morning...")
+    # Zlib compression ratio test for autoregressive repetition loops
     raw = cleaned.encode("utf-8")
-    if len(raw) > 24:
+    if len(raw) > 28:
         ratio = len(raw) / len(zlib.compress(raw))
-        if ratio > 2.0:
-            return False
-
-    # Word diversity ratio (detects phrase repetitions like "killing, killing, killing...")
-    words = cleaned.split()
-    if len(words) >= 4:
-        if len(set(words)) / len(words) < 0.45:
+        if ratio > 2.2:
             return False
 
     return True
@@ -75,7 +79,12 @@ class FastASRHandler(BaseHTTPRequestHandler):
         pass
 
     def do_POST(self):
-        if self.path == "/transcribe":
+        parsed = urllib.parse.urlparse(self.path)
+        if parsed.path == "/transcribe":
+            query = urllib.parse.parse_qs(parsed.query)
+            lang = query.get("lang", ["auto"])[0]
+            task = query.get("task", ["transcribe"])[0]
+
             content_length = int(self.headers.get("Content-Length", 0))
             if content_length <= 0:
                 self.send_response(200)
@@ -106,23 +115,28 @@ class FastASRHandler(BaseHTTPRequestHandler):
                 return
 
             try:
+                generate_kwargs = {
+                    "task": task,
+                    "no_repeat_ngram_size": 3,
+                    "repetition_penalty": 1.3,
+                    "condition_on_previous_text": False,
+                }
+                if lang and lang != "auto":
+                    generate_kwargs["language"] = lang
+
                 with torch.inference_mode():
                     result = asr(
                         {"sampling_rate": 16000, "raw": audio_data},
-                        generate_kwargs={
-                            "task": "transcribe",
-                            "language": "en",
-                            "no_repeat_ngram_size": 3,
-                            "repetition_penalty": 1.3,
-                            "condition_on_previous_text": False,
-                        },
+                        generate_kwargs=generate_kwargs,
                     )
 
-                text = result.get("text", "").strip()
-                if not is_clean_transcript(text):
-                    text = ""
+                raw_text = result.get("text", "").strip()
+                cleaned_text = deduplicate_repetitions(raw_text)
 
-                resp = json.dumps({"text": text}).encode("utf-8")
+                if not is_clean_transcript(cleaned_text):
+                    cleaned_text = ""
+
+                resp = json.dumps({"text": cleaned_text}).encode("utf-8")
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -138,7 +152,7 @@ class FastASRHandler(BaseHTTPRequestHandler):
 
 def run(port=5174):
     server = ThreadingHTTPServer(("127.0.0.1", port), FastASRHandler)
-    print(f"High-Performance ASR Server listening on http://127.0.0.1:{port}")
+    print(f"High-Performance Multilingual ASR Server listening on http://127.0.0.1:{port}")
     sys.stdout.flush()
     server.serve_forever()
 

@@ -1,6 +1,6 @@
-import React, { useState } from "react";
+import React, { useState, useRef, useEffect, useCallback } from "react";
 import { invoke } from "@tauri-apps/api/core";
-import { Cast } from "lucide-react";
+import { Cast, Languages } from "lucide-react";
 import { GlassContainer } from "../components/GlassContainer";
 import { AudioSourceToggle } from "../components/AudioSourceToggle";
 import { TargetDropdown } from "../components/TargetDropdown";
@@ -17,10 +17,13 @@ import { QrCodeResponse } from "../types/window";
 
 export const WidgetView: React.FC = () => {
   const [audioSource, setAudioSource] = useState<"mic" | "target" | "system">("mic");
+  const [language, setLanguage] = useState<"auto" | "en" | "hi" | "translate">("auto");
   const [isQrModalOpen, setIsQrModalOpen] = useState(false);
   const [qrData, setQrData] = useState<QrCodeResponse | null>(null);
   const [qrLoading, setQrLoading] = useState(false);
   const [isBroadcasting, setIsBroadcasting] = useState(false);
+
+  const openPiPRef = useRef<() => void>(() => {});
 
   const {
     windows,
@@ -29,6 +32,13 @@ export const WidgetView: React.FC = () => {
     setSelectedPid,
     refreshWindows,
   } = useActiveWindows();
+
+  const handleDisplaySelected = useCallback(() => {
+    // Automatically launch Spotlight live caption capsule over the target window
+    setTimeout(() => {
+      openPiPRef.current?.();
+    }, 180);
+  }, []);
 
   const {
     isRecording,
@@ -43,15 +53,19 @@ export const WidgetView: React.FC = () => {
     toggle: toggleRecording,
     start: startRecording,
     clearTranscript,
-  } = useAudioCapture(audioSource, selectedPid);
+  } = useAudioCapture(audioSource, selectedPid, language, handleDisplaySelected);
 
-  const { isPipActive, togglePiP } = usePictureInPicture(
+  const { isPipActive, togglePiP, openPiP } = usePictureInPicture(
     sentences,
     activePartial,
     audioLevel,
     targetStreamLabel,
     isRecording
   );
+
+  useEffect(() => {
+    openPiPRef.current = openPiP;
+  }, [openPiP]);
 
   const handleTogglePiP = () => {
     if (!isRecording) {
@@ -87,6 +101,58 @@ export const WidgetView: React.FC = () => {
         onChange={setAudioSource}
         disabled={isRecording}
       />
+
+      {/* Multilingual Mode Selector */}
+      <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 gap-1 no-drag text-[11px]">
+        <button
+          onClick={() => setLanguage("auto")}
+          className={`flex-1 py-1 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1 transition-all ${
+            language === "auto"
+              ? "bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm"
+              : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+          }`}
+          title="Auto-detect Hindi, English, and other languages"
+        >
+          <Languages className="w-3 h-3" />
+          <span>Auto</span>
+        </button>
+
+        <button
+          onClick={() => setLanguage("en")}
+          className={`flex-1 py-1 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1 transition-all ${
+            language === "en"
+              ? "bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm"
+              : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+          }`}
+          title="English Speech"
+        >
+          <span>English</span>
+        </button>
+
+        <button
+          onClick={() => setLanguage("hi")}
+          className={`flex-1 py-1 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1 transition-all ${
+            language === "hi"
+              ? "bg-amber-500/20 text-amber-300 border border-amber-500/30 shadow-sm"
+              : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+          }`}
+          title="Hindi News / Speech"
+        >
+          <span>Hindi</span>
+        </button>
+
+        <button
+          onClick={() => setLanguage("translate")}
+          className={`flex-1 py-1 px-1.5 rounded-lg font-medium flex items-center justify-center gap-1 transition-all ${
+            language === "translate"
+              ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+              : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
+          }`}
+          title="Translate any spoken language to English"
+        >
+          <span>To English</span>
+        </button>
+      </div>
 
       {/* Target Application Selector (Shown when Target Lock is active) */}
       {audioSource === "target" && (

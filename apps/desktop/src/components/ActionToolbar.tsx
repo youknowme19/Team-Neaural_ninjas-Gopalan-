@@ -77,10 +77,10 @@ export const ActionToolbar: React.FC<ActionToolbarProps> = ({
                 ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-medium shadow-sm"
                 : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5"
             }`}
-            title="Pop out floating subtitles window over your movie (Google Meet style)"
+            title="Spotlight floating live caption capsule over your movie or screen"
           >
             <PictureInPicture2 className={`w-3.5 h-3.5 ${isPipActive ? "text-emerald-400" : ""}`} />
-            <span className="text-[11px]">{isPipActive ? "PiP Active" : "PiP"}</span>
+            <span className="text-[11px]">{isPipActive ? "Spotlight Active" : "Spotlight"}</span>
           </button>
         )}
       </div>
