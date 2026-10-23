@@ -1,7 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::path::PathBuf;
 use tokio::sync::Mutex;
+use crate::engine::sidecar::PersistentWhisperWorker;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 #[serde(rename_all = "lowercase")]
@@ -30,6 +32,7 @@ pub struct AppState {
     pub current_source: Arc<Mutex<AudioSource>>,
     pub target_pid: Arc<Mutex<Option<u32>>>,
     pub live_event_active: Arc<AtomicBool>,
+    pub whisper_worker: Arc<Mutex<Option<PersistentWhisperWorker>>>,
 }
 
 impl AppState {
@@ -39,6 +42,7 @@ impl AppState {
             current_source: Arc::new(Mutex::new(AudioSource::Mic)),
             target_pid: Arc::new(Mutex::new(None)),
             live_event_active: Arc::new(AtomicBool::new(false)),
+            whisper_worker: Arc::new(Mutex::new(None)),
         }
     }
 }
