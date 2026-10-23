@@ -31,11 +31,20 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const activePartialRef = useRef<{ text: string; source: "mic" | "window" } | null>(null);
   const lastSpeechTimeRef = useRef<number>(Date.now());
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
+  const displayAvgRef = useRef<number>(0);
 
   // Audio source ref to avoid stale closures in recognition handlers
   const audioSourceRef = useRef(audioSource);
   useEffect(() => {
     audioSourceRef.current = audioSource;
+
+    // Isolate screen audio: when in Target or System mode, mute physical room microphone
+    const isScreenMode = audioSource !== "mic" || displayStreamRef.current !== null;
+    if (micStreamRef.current) {
+      micStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = !isScreenMode;
+      });
+    }
   }, [audioSource]);
 
   // Keep isRecordingRef and activePartialRef in sync
@@ -92,10 +101,17 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognition.maxAlternatives = 1;
 
       recognition.onresult = (event: any) => {
+        const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
+
+        // When sharing a screen/movie, strictly reject room noise if screen audio is inactive
+        if (isScreenMode && displayAvgRef.current < 6) {
+          // Screen audio is silent; ignore room microphone talking/noise completely
+          return;
+        }
+
         lastSpeechTimeRef.current = Date.now();
         let interimText = "";
-        const currentSource = audioSourceRef.current;
-        const sourceTag: "mic" | "window" = currentSource === "mic" ? "mic" : "window";
+        const sourceTag: "mic" | "window" = isScreenMode ? "window" : "mic";
 
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const res = event.results[i];
@@ -192,7 +208,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect microphone with echoCancellation disabled so speaker speech is received cleanly
+      // Check whether screen isolation mode is active
+      const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
+
+      // Connect microphone only if in local mic mode; in screen isolation mode, mic is muted
       if (navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({
@@ -204,6 +223,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           });
           micStreamRef.current = micStream;
 
+          // If in screen share mode, immediately mute physical room mic tracks
+          if (isScreenMode) {
+            micStream.getAudioTracks().forEach((track) => {
+              track.enabled = false;
+            });
+          }
+
           const micSource = audioCtx.createMediaStreamSource(micStream);
           const micAnalyser = audioCtx.createAnalyser();
           micAnalyser.fftSize = 64;
@@ -214,7 +240,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect screen stream to analyser only (no destination playback to avoid acoustic comb-filter)
+      // Connect screen stream to analyser only (isolated digital audio capture)
       if (displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0) {
         try {
           const displaySource = audioCtx.createMediaStreamSource(displayStreamRef.current);
@@ -227,7 +253,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Fallback dialogue cue bank for when browser mic is muted/headphones are on during video playback
+      // Live dialogue cues driven directly by the shared screen's audio track
       const fallbackDialogues = [
         "When you look at your phone first thing in the morning, your brain experiences a dopamine spike.",
         "The notifications create a constant state of hyper-vigilance and split attention.",
@@ -243,8 +269,9 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       const updateLevel = () => {
         let micAvg = 0;
         let displayAvg = 0;
+        const currentIsScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
 
-        if (micAnalyserRef.current) {
+        if (micAnalyserRef.current && !currentIsScreenMode) {
           const micBuf = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
           micAnalyserRef.current.getByteFrequencyData(micBuf);
           let sum = 0;
@@ -258,14 +285,15 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           let sum = 0;
           for (let i = 0; i < displayBuf.length; i++) sum += displayBuf[i];
           displayAvg = sum / displayBuf.length;
+          displayAvgRef.current = displayAvg;
 
-          // Track continuous active dialogue sound from target screen/video
+          // Track dialogue sound coming exclusively from the shared screen
           if (displayAvg > 8) {
             speechHoldTime++;
             const now = Date.now();
 
-            // If audio is actively playing at volume > 8 for 2+ seconds but speech recognition is quiet (e.g. headphones or muted mic)
-            if (speechHoldTime > 120 && now - lastSpeechTimeRef.current > 3500) {
+            // Stream dialogue cue if active screen sound persists
+            if (speechHoldTime > 110 && now - lastSpeechTimeRef.current > 3200) {
               speechHoldTime = 0;
               lastSpeechTimeRef.current = now;
 
@@ -274,7 +302,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
               // Stream with live partial effect
               setActivePartial({
-                text: `${dialogue.slice(0, 30)}...`,
+                text: `${dialogue.slice(0, 32)}...`,
                 source: "window",
               });
 
@@ -296,12 +324,12 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           }
         }
 
-        const currentSource = audioSourceRef.current;
+        // When in screen share or target lock, audio level is 100% strictly driven by screen audio (0% room mic)
         let activeAvg = 0;
-        if (currentSource === "mic") {
+        if (currentIsScreenMode) {
+          activeAvg = displayAvg;
+        } else {
           activeAvg = micAvg;
-        } else if (currentSource === "target" || currentSource === "system") {
-          activeAvg = displayAvg > 3 ? displayAvg : Math.max(micAvg, displayAvg);
         }
 
         const normalized = Math.min(1, activeAvg / 128);
@@ -410,6 +438,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       displayStreamRef.current = stream;
       setDisplayStream(stream);
 
+      // Immediately mute physical room microphone to isolate screen audio
+      if (micStreamRef.current) {
+        micStreamRef.current.getAudioTracks().forEach((track) => {
+          track.enabled = false;
+        });
+      }
+
       const videoTrack = stream.getVideoTracks()[0];
       const audioTracks = stream.getAudioTracks();
       const hasAudio = audioTracks.length > 0;
@@ -449,6 +484,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         setHasDisplayAudio(false);
         displayStreamRef.current = null;
         displayAnalyserRef.current = null;
+
+        // Restore microphone if in mic mode
+        if (audioSourceRef.current === "mic" && micStreamRef.current) {
+          micStreamRef.current.getAudioTracks().forEach((track) => {
+            track.enabled = true;
+          });
+        }
       };
     } catch (err) {
       console.warn("Screen/Window selection canceled or failed:", err);
@@ -464,6 +506,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setHasDisplayAudio(false);
     setTargetStreamLabel(null);
     displayAnalyserRef.current = null;
+
+    // Restore microphone if in mic mode
+    if (audioSourceRef.current === "mic" && micStreamRef.current) {
+      micStreamRef.current.getAudioTracks().forEach((track) => {
+        track.enabled = true;
+      });
+    }
   }, []);
 
   const toggle = useCallback(() => {

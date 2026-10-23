@@ -76,7 +76,7 @@ export const ScreenSharePreview: React.FC<ScreenSharePreviewProps> = ({
         <div className="absolute bottom-1.5 left-1.5 flex items-center gap-1 bg-black/70 backdrop-blur-md px-2 py-0.5 rounded text-[9px] font-mono border border-white/10">
           <Volume2 className={`w-3 h-3 ${hasAudio ? "text-emerald-400" : "text-amber-400"}`} />
           <span className={hasAudio ? "text-emerald-300" : "text-amber-300"}>
-            {hasAudio ? "Movie Audio Captured" : "No Audio (Check Share Audio)"}
+            {hasAudio ? "Target Lock: Screen Audio Only (Mic Muted)" : "No Audio (Check Share Audio)"}
           </span>
         </div>
       </div>

@@ -302,15 +302,15 @@ export function usePictureInPicture(
       if (audioLevel > 0.04) {
         html = `
           <div class="empty-state">
-            <span class="status-pill">Audio Detected - Transcribing</span>
-            <div>Capturing live dialogue from ${escapeHtml(labelText)}...</div>
+            <span class="status-pill">Target Lock: Screen Audio Isolated</span>
+            <div>Capturing live audio from ${escapeHtml(labelText)} (Room Mic Muted)...</div>
           </div>
         `;
       } else {
         html = `
           <div class="empty-state">
-            <span class="status-pill">${isRecording ? "Listening" : "Ready"}</span>
-            <div>Play video or speak to display live captions...</div>
+            <span class="status-pill">${isRecording ? "Screen Audio Locked" : "Ready"}</span>
+            <div>Play video or audio on shared screen to display live captions...</div>
           </div>
         `;
       }
