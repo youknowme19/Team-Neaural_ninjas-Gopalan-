@@ -272,7 +272,7 @@ export function usePictureInPicture(
     `;
 
     // Render recent sentences
-    const recent = sentences.slice(-3);
+    const recent = sentences.slice(-5);
     let html = recent
       .map(
         (s) => `
