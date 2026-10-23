@@ -1,8 +1,6 @@
-# OmniScribe Edge
+# LiveSpeak
 
-**Master Project Specification & Implementation Blueprint**
-
-OmniScribe Edge is a featherweight (under 200MB total footprint), 100% on-device, ultra-low-latency live speech-to-text (STT) desktop application with integrated local grammar correction and live event audience broadcasting. Engineered using Tauri v2, native Rust audio pipelines, and quantized neural engine sidecars, the application guarantees zero cloud reliance, sub-second transcription latency, hardware-accelerated inference across Apple Silicon and Windows ARM64/x64 architectures, and zero-driver system audio capture for hybrid/virtual live events.
+LiveSpeak is a featherweight (under 200MB total footprint), 100% on-device, ultra-low-latency live speech-to-text (STT) desktop application with integrated local grammar correction and live event audience broadcasting. Engineered using Tauri v2, native Rust audio pipelines, and quantized neural engine sidecars, the application guarantees zero cloud reliance, sub-second transcription latency, hardware-accelerated inference across Apple Silicon and Windows ARM64/x64 architectures, and zero-driver system audio capture for hybrid/virtual live events.
 
 ---
 
@@ -25,9 +23,9 @@ Deliver a production-ready, local-first dictation, transcription, and live-event
 
 ## 2. High-Organization System Architecture
 
-![OmniScribe Edge System Architecture](assets/omniscribe_architecture.jpg)
+![LiveSpeak System Architecture](assets/livespeak_architecture.jpg)
 
-The following diagram details the multi-tier architectural topology of OmniScribe Edge, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, dual-source audio capture, sliding-window streaming, and LAN audience distribution.
+The following diagram details the multi-tier architectural topology of LiveSpeak, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, dual-source audio capture, sliding-window streaming, and LAN audience distribution.
 
 ```mermaid
 graph TB
@@ -261,7 +259,7 @@ To strictly honor the 200MB total distribution limit while providing real-time r
 ## 6. Repository Layout
 
 ```
-OmniScribe-Edge/
+LiveSpeak/
 |-- .gitignore
 |-- README.md
 |-- package.json
@@ -360,7 +358,7 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
      "app": {
        "windows": [
          {
-           "title": "OmniScribe Edge",
+           "title": "LiveSpeak",
            "width": 420,
            "height": 580,
            "resizable": false,
@@ -408,7 +406,7 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
 
 ## 8. Live Event & Real-Time Streaming Architecture
 
-To handle large-scale live events, OmniScribe Edge transcends standard push-to-talk dictation. Live events necessitate capturing system audio (for virtual conferences like Zoom, Microsoft Teams, or YouTube Live), continuous sub-second text streaming (eliminating pauses between sentences), and local audience broadcasting.
+To handle large-scale live events, LiveSpeak transcends standard push-to-talk dictation. Live events necessitate capturing system audio (for virtual conferences like Zoom, Microsoft Teams, or YouTube Live), continuous sub-second text streaming (eliminating pauses between sentences), and local audience broadcasting.
 
 ### 8.1 Advanced Audio Capture (System Audio vs. Microphone)
 * **The Problem:** Capturing physical microphone input is straightforward, but capturing a live virtual event (system audio) requires bypassing OS restrictions, particularly on macOS where loopback drivers typically require complex kernel installations.
@@ -542,7 +540,7 @@ pnpm --filter desktop tauri build
 
 ## 11. Privacy, Security & Air-Gap Compliance
 
-OmniScribe Edge is architected from first principles to be completely secure and self-contained:
+LiveSpeak is architected from first principles to be completely secure and self-contained:
 * **Zero Socket Outbound Traffic:** In standard mode, the core application opens zero external TCP or UDP sockets.
 * **Contained Local Broadcasting:** When Live Event Mode is active, the WebSocket server listens exclusively on the local interface or LAN subnet without external internet traversal.
 * **No Telemetry or Tracking:** No analytical beacons, crash reporters, or tracking identifiers are compiled into the binary.
