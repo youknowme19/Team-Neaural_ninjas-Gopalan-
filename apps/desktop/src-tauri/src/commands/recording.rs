@@ -1,7 +1,9 @@
 use crate::state::{AppState, AudioSource};
 use crate::engine::grammar::FillerRemover;
+use crate::engine::zerocopy::UltraLowLatencyEngine;
 use std::sync::atomic::Ordering;
-use tauri::State;
+use tauri::{AppHandle, Manager, State};
+use std::path::PathBuf;
 
 #[tauri::command]
 pub async fn start_recording(
@@ -25,17 +27,30 @@ pub async fn stop_recording(state: State<'_, AppState>) -> Result<bool, String> 
 
 #[tauri::command]
 pub async fn transcribe_chunk(
+    app_handle: AppHandle,
     state: State<'_, AppState>,
     wav_bytes: Vec<u8>,
     source: String,
 ) -> Result<String, String> {
-    let worker_guard = state.whisper_worker.lock().await;
-    if let Some(ref worker) = *worker_guard {
-        let raw_text = worker.transcribe_audio_chunk(&wav_bytes)?;
-        // Strip filler words instantly using Handy's regex method
-        let cleaned = FillerRemover::clean(&raw_text, true);
-        Ok(cleaned)
-    } else {
-        Err("Whisper engine worker is not initialized".to_string())
-    }
+    // Resolve resource paths
+    let resource_dir = app_handle
+        .path()
+        .resource_dir()
+        .unwrap_or_else(|_| PathBuf::from("."));
+
+    let bin_dir = resource_dir.join("bin");
+    let models_dir = resource_dir.join("models");
+
+    let engine = UltraLowLatencyEngine::new(
+        if bin_dir.exists() { bin_dir } else { PathBuf::from("bin") },
+        if models_dir.exists() { models_dir } else { PathBuf::from("models") },
+    );
+
+    // 1. Zero-Copy direct stdin inference in RAM
+    let raw_text = engine.transcribe_zerocopy_pcm(&wav_bytes)?;
+
+    // 2. Microsecond regex filler word elimination (Handy pipeline)
+    let cleaned_text = FillerRemover::clean(&raw_text, true);
+
+    Ok(cleaned_text)
 }
