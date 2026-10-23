@@ -1,0 +1,56 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    * { margin: 0; padding: 0; }
+    html, body { width: 1024px; height: 1024px; overflow: hidden; background: transparent; }
+    svg { width: 1024px; height: 1024px; display: block; }
+  </style>
+</head>
+<body>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" width="1024" height="1024">
+  <defs>
+    <!-- Soft luminous glow on the main voice ribbon -->
+    <filter id="softGlow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur stdDeviation="12" result="blur" />
+      <feComposite in="SourceGraphic" in2="blur" operator="over" />
+    </filter>
+
+    <linearGradient id="waveGradientPure" x1="0%" y1="0%" x2="100%" y2="0%">
+      <stop offset="0%" stop-color="#ffffff" stop-opacity="0.9" />
+      <stop offset="50%" stop-color="#ffffff" stop-opacity="1" />
+      <stop offset="100%" stop-color="#e2e8f0" stop-opacity="0.9" />
+    </linearGradient>
+  </defs>
+
+  <!-- NO background square/box/squircle - 100% Transparent -->
+
+  <!-- Wavy Sound Wave ribbons (Pure Logo Symbol) -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <!-- Wave 1: Subtle high frequency resonance (Top) -->
+    <path d="M 210 570 C 310 570, 370 400, 450 400 C 530 400, 560 600, 640 600 C 710 600, 750 500, 814 500" 
+          stroke="#ffffff" stroke-opacity="0.35" stroke-width="16" />
+
+    <!-- Wave 2: Harmonic wave rising (Medium-Upper) -->
+    <path d="M 175 540 C 275 540, 350 336, 440 336 C 530 336, 560 648, 650 648 C 730 648, 770 480, 845 480" 
+          stroke="#ffffff" stroke-opacity="0.65" stroke-width="24" />
+
+    <!-- Wave 3: Core Primary Voice Wave (Central spine) -->
+    <path d="M 140 512 C 240 512, 340 256, 436 256 C 540 256, 560 752, 664 752 C 750 752, 790 512, 884 512" 
+          stroke="url(#waveGradientPure)" stroke-width="38" filter="url(#softGlow)" />
+
+    <!-- Wave 4: Harmonic wave descending (Medium-Lower) -->
+    <path d="M 175 484 C 275 484, 350 680, 440 680 C 530 680, 560 376, 650 376 C 730 376, 770 544, 845 544" 
+          stroke="#ffffff" stroke-opacity="0.65" stroke-width="24" />
+
+    <!-- Wave 5: Subtle low frequency resonance (Bottom) -->
+    <path d="M 210 454 C 310 454, 370 624, 450 624 C 530 624, 560 424, 640 424 C 710 424, 750 524, 814 524" 
+          stroke="#ffffff" stroke-opacity="0.35" stroke-width="16" />
+  </g>
+
+  <!-- Flow terminal markers / voice pulses -->
+  <circle cx="120" cy="512" r="10" fill="#ffffff" fill-opacity="0.6" />
+  <circle cx="904" cy="512" r="10" fill="#ffffff" fill-opacity="0.6" />
+</svg>
+</body>
+</html>

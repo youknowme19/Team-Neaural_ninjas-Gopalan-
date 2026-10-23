@@ -3,13 +3,11 @@
 //! Keeps the Whisper model warm in RAM to eliminate cold-start reload latency.
 //! Decodes using greedy search (beam-size 1) and flash-attention for sub-200ms turnaround.
 
-use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, ChildStdout, Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
-use tokio::sync::Mutex;
-use log::{info, error, warn};
+use log::info;
 
 pub struct PersistentWhisperWorker {
     model_path: PathBuf,
@@ -60,9 +58,6 @@ impl PersistentWhisperWorker {
 
     /// Directly transcribes a PCM audio buffer in memory with greedy zero-latency decoding
     pub fn transcribe_audio_chunk(&self, wav_bytes: &[u8]) -> Result<String, String> {
-        use std::io::Cursor;
-        use std::fs::File;
-
         // Fast temporary buffer path in RAM/temp
         let temp_wav = std::env::temp_dir().join(format!("livespeak_chunk_{}.wav", std::process::id()));
         std::fs::write(&temp_wav, wav_bytes).map_err(|e| e.to_string())?;

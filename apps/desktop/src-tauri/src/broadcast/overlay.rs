@@ -1,8 +1,20 @@
 use tauri::{AppHandle, Manager, WebviewWindow, WebviewWindowBuilder, WebviewUrl};
+use crate::commands::overlay::restore_overlay_preserving_pos;
 
 pub const OVERLAY_LABEL: &str = "caption_overlay";
 
 pub fn toggle_caption_overlay(app_handle: &AppHandle) -> Result<(), String> {
+    if let Some(window) = app_handle.get_webview_window("main") {
+        let is_vis = window.is_visible().unwrap_or(false);
+        let is_min = window.is_minimized().unwrap_or(false);
+        if is_vis && !is_min {
+            window.minimize().map_err(|e| e.to_string())?;
+        } else {
+            restore_overlay_preserving_pos(&window);
+            let _ = window.set_focus();
+        }
+        return Ok(());
+    }
     if let Some(window) = app_handle.get_webview_window(OVERLAY_LABEL) {
         if window.is_visible().unwrap_or(false) {
             window.hide().map_err(|e| e.to_string())?;

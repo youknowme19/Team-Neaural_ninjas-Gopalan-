@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="100%" height="100%">
+  <!-- Transparent Background / Raw Monogram Icon -->
+  <g fill="none" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M 120 286 C 160 286, 185 200, 225 200 C 265 200, 280 300, 320 300 C 355 300, 375 250, 400 250" 
+          stroke="currentColor" stroke-opacity="0.3" stroke-width="7" />
+
+    <path d="M 105 272 C 145 272, 175 168, 220 168 C 265 168, 280 324, 325 324 C 365 324, 385 240, 412 240" 
+          stroke="currentColor" stroke-opacity="0.55" stroke-width="11" />
+
+    <path d="M 92 256 C 140 256, 170 128, 218 128 C 270 128, 280 376, 332 376 C 375 376, 395 256, 424 256" 
+          stroke="currentColor" stroke-width="18" />
+
+    <path d="M 105 240 C 145 240, 175 340, 220 340 C 265 340, 280 188, 325 188 C 365 188, 385 272, 412 272" 
+          stroke="currentColor" stroke-opacity="0.55" stroke-width="11" />
+
+    <path d="M 120 226 C 160 226, 185 312, 225 312 C 265 312, 280 212, 320 212 C 355 212, 375 262, 400 262" 
+          stroke="currentColor" stroke-opacity="0.3" stroke-width="7" />
+  </g>
+  <circle cx="82" cy="256" r="4.5" fill="currentColor" fill-opacity="0.4" />
+  <circle cx="436" cy="256" r="4.5" fill="currentColor" fill-opacity="0.4" />
+</svg>

@@ -13,11 +13,26 @@ dist/
 # Rust / Tauri build artifacts
 target/
 src-tauri/target/
+**/target/
+**/bin/*.exe
+**/bin/*.dll
+**/bin/whisper-*
+**/bin/parakeet-*
+**/bin/test-*
+**/bin/stream*
+**/bin/wchess*
+**/bin/main*
+**/bin/bench*
+**/bin/command*
+**/gen/
+**/capabilities/
+**/resources/
 
 # Model binaries and temporary audio dumps
 *.wav
 *.bin
 *.gguf
+*.onnx
 !models/*.gitkeep
 
 # Environment variables
