@@ -9,6 +9,7 @@ use livespeak_lib::{
 };
 use serde::{Deserialize, Serialize};
 use std::path::PathBuf;
+#[cfg(target_os = "windows")]
 use std::time::{Duration, Instant};
 use tauri::{Emitter, Manager};
 
@@ -56,31 +57,54 @@ fn main() {
         .setup(move |app| {
             println!("[LiveSpeak] Tauri setup started...");
             if let Some(main_win) = app.get_webview_window("main") {
-                println!("[LiveSpeak] Found 'main' window, snapping to bottom-center...");
+                println!("[LiveSpeak] Found 'main' window, configuring native overlay...");
                 let _ = main_win.set_decorations(false);
                 let _ = main_win.set_shadow(false);
+
+                #[cfg(target_os = "macos")]
+                {
+                    use window_vibrancy::{apply_vibrancy, NSVisualEffectMaterial};
+                    let _ = apply_vibrancy(&main_win, NSVisualEffectMaterial::HudWindow, None, Some(16.0));
+                }
+
                 commands::overlay::snap_overlay_to_bottom(&main_win, false);
                 let _ = main_win.set_focus();
             }
 
             let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-            let bin_dir = if cwd.join("bin").exists() {
-                cwd.join("bin")
-            } else {
-                PathBuf::from("F:\\LiveSpeak\\apps\\desktop\\src-tauri\\bin")
-            };
-            let models_dir = if cwd.join("models").exists() {
-                cwd.join("models")
-            } else {
-                PathBuf::from("F:\\LiveSpeak\\apps\\desktop\\src-tauri\\models")
-            };
+            let exe_dir = std::env::current_exe()
+                .ok()
+                .and_then(|p| p.parent().map(|d| d.to_path_buf()))
+                .unwrap_or_else(|| cwd.clone());
 
-            // 1. Spawn Persistent In-RAM `whisper-server.exe` with Silero v5.1.2 Neural VAD + ggml-base.en.bin
+            let bin_candidates = [
+                exe_dir.join("bin"),
+                cwd.join("bin"),
+                cwd.join("src-tauri/bin"),
+                PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/bin"),
+            ];
+            let bin_dir = bin_candidates
+                .into_iter()
+                .find(|p| p.exists())
+                .unwrap_or_else(|| cwd.join("bin"));
+
+            let model_candidates = [
+                exe_dir.join("models"),
+                cwd.join("models"),
+                cwd.join("src-tauri/models"),
+                PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/models"),
+            ];
+            let models_dir = model_candidates
+                .into_iter()
+                .find(|p| p.exists())
+                .unwrap_or_else(|| cwd.join("models"));
+
+            // 1. Spawn Persistent In-RAM `whisper-server` with Silero Neural VAD + Whisper model
             {
                 let engine = UltraLowLatencyEngine::new(bin_dir.clone(), models_dir.clone());
                 match engine.spawn_persistent_server(&bin_dir) {
                     Ok(_child) => {
-                        println!("[LiveSpeak] Persistent whisper-server + Silero v5.1.2 Neural VAD launched on 127.0.0.1:18181");
+                        println!("[LiveSpeak] Persistent whisper-server launched on 127.0.0.1:18181");
                     }
                     Err(e) => {
                         println!("[LiveSpeak] Error launching whisper-server: {}", e);
@@ -192,7 +216,31 @@ fn main() {
                 });
             }
 
-            println!("[LiveSpeak] Tauri setup complete! Hotkey active: Right Alt or Ctrl+Alt");
+            #[cfg(target_os = "macos")]
+            {
+                use tauri_plugin_global_shortcut::GlobalShortcutExt;
+                let app_handle = app.handle().clone();
+                let shortcut = tauri_plugin_global_shortcut::Shortcut::new(
+                    Some(tauri_plugin_global_shortcut::Modifiers::ALT),
+                    tauri_plugin_global_shortcut::Code::Space,
+                );
+                let _ = app.global_shortcut().on_shortcut(shortcut, move |_app, _shortcut, event| {
+                    if event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed {
+                        if let Some(win) = app_handle.get_webview_window("main") {
+                            let is_vis = win.is_visible().unwrap_or(false);
+                            let is_min = win.is_minimized().unwrap_or(false);
+                            if is_vis && !is_min {
+                                let _ = win.minimize();
+                            } else {
+                                commands::overlay::restore_overlay_preserving_pos(&win);
+                                let _ = win.set_focus();
+                            }
+                        }
+                    }
+                });
+            }
+
+            println!("[LiveSpeak] Tauri setup complete! Active hotkey: Option+Space (macOS) / Right Alt (Windows)");
             Ok(())
         })
         .on_window_event(|window, event| match event {
@@ -203,8 +251,14 @@ fn main() {
             }
             tauri::WindowEvent::Destroyed => {
                 // Clean up background whisper-server when the app is explicitly closed
+                #[cfg(target_os = "windows")]
                 let _ = std::process::Command::new("taskkill")
                     .args(["/F", "/IM", "whisper-server.exe"])
+                    .output();
+
+                #[cfg(not(target_os = "windows"))]
+                let _ = std::process::Command::new("pkill")
+                    .args(["-9", "-f", "whisper-server"])
                     .output();
             }
             _ => {}

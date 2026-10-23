@@ -11,39 +11,51 @@ use std::time::Duration;
 pub const WHISPER_SERVER_ADDR: &str = "127.0.0.1:18181";
 
 pub struct UltraLowLatencyEngine {
+    #[allow(dead_code)]
     binary_path: PathBuf,
     server_path: PathBuf,
     model_path: PathBuf,
+    #[allow(dead_code)]
     vad_model_path: PathBuf,
     optimal_threads: usize,
 }
 
 impl UltraLowLatencyEngine {
     pub fn new(bin_dir: PathBuf, models_dir: PathBuf) -> Self {
-        let binary_path = bin_dir.join("whisper-sidecar-x86_64-pc-windows-msvc.exe");
-        let server_path = bin_dir.join("whisper-server.exe");
-        // Use 809M `ggml-large-v3-turbo-q5_0.bin` (Distil-Large-v3 / Large-v3-Turbo, 32 encoder + 4 distilled decoder layers)
-        // or 244M `ggml-small.en-q8_0.bin` on NVIDIA RTX 3050 CUDA GPU (`cublas64_11.dll` + `ggml-cuda.dll`),
-        // achieving ~30ms encode + 2.20ms/token decode on CUDA0!
-        let has_cuda_cublas = bin_dir.join("cublas64_11.dll").exists();
+        #[cfg(target_os = "windows")]
+        let (binary_path, server_path) = (
+            bin_dir.join("whisper-sidecar-x86_64-pc-windows-msvc.exe"),
+            bin_dir.join("whisper-server.exe"),
+        );
+
+        #[cfg(not(target_os = "windows"))]
+        let (binary_path, server_path) = (
+            bin_dir.join("whisper-sidecar-aarch64-apple-darwin"),
+            bin_dir.join("whisper-server"),
+        );
+
+        let tiny_multilingual = models_dir.join("ggml-tiny.bin");
+        let base_fp16_model = models_dir.join("ggml-base.en.bin");
         let large_v3_turbo_model = models_dir.join("ggml-large-v3-turbo-q5_0.bin");
         let small_q8_model = models_dir.join("ggml-small.en-q8_0.bin");
         let small_q5_model = models_dir.join("ggml-small.en-q5_1.bin");
-        let base_fp16_model = models_dir.join("ggml-base.en.bin");
-        let model_path = if has_cuda_cublas && large_v3_turbo_model.exists() {
-            large_v3_turbo_model
-        } else if has_cuda_cublas && small_q8_model.exists() {
-            small_q8_model
-        } else if has_cuda_cublas && small_q5_model.exists() {
-            small_q5_model
+
+        let model_path = if tiny_multilingual.exists() {
+            tiny_multilingual
         } else if base_fp16_model.exists() {
             base_fp16_model
+        } else if large_v3_turbo_model.exists() {
+            large_v3_turbo_model
+        } else if small_q8_model.exists() {
+            small_q8_model
+        } else if small_q5_model.exists() {
+            small_q5_model
         } else {
             models_dir.join("ggml-base.en-q5_1.bin")
         };
+
         let vad_model_path = models_dir.join("ggml-silero-v5.1.2.bin");
-        // Intel 12th Gen Core i5-12500H P-cores (6 threads avoids E-core barrier stalls)
-        let optimal_threads = 6;
+        let optimal_threads = 4;
 
         Self {
             binary_path,
@@ -54,10 +66,10 @@ impl UltraLowLatencyEngine {
         }
     }
 
-    /// Spawns the persistent in-RAM `whisper-server.exe` daemon
+    /// Spawns the persistent in-RAM `whisper-server` daemon
     pub fn spawn_persistent_server(&self, bin_dir: &PathBuf) -> Result<Child, String> {
         println!(
-            "[LiveSpeak] Loading high-accuracy Whisper model: {:?}",
+            "[LiveSpeak] Loading Whisper model: {:?}",
             self.model_path.file_name().unwrap_or_default()
         );
         let mut cmd = Command::new(&self.server_path);
@@ -65,15 +77,24 @@ impl UltraLowLatencyEngine {
             .arg("-m")
             .arg(&self.model_path)
             .arg("-l")
-            .arg("en")
+            .arg("auto")
             .arg("-t")
             .arg(self.optimal_threads.to_string())
             .arg("--host")
             .arg("127.0.0.1")
             .arg("--port")
             .arg("18181")
-            .stdout(Stdio::null())
-            .stderr(Stdio::null());
+            .arg("--inference-path")
+            .arg("/inference");
+
+        #[cfg(target_os = "macos")]
+        {
+            let current_dyld = std::env::var("DYLD_LIBRARY_PATH").unwrap_or_default();
+            let new_dyld = format!("{}:{}", bin_dir.display(), current_dyld);
+            cmd.env("DYLD_LIBRARY_PATH", new_dyld);
+        }
+
+        cmd.stdout(Stdio::null()).stderr(Stdio::null());
 
         #[cfg(target_os = "windows")]
         {
@@ -100,12 +121,16 @@ impl UltraLowLatencyEngine {
         let boundary = "----LiveSpeakZeroCopyBoundary7MA4YWxkTrZu0gW";
         let mut body = Vec::with_capacity(wav_bytes.len() + 1280);
 
-        let form_fields = [
+        let mut form_fields = vec![
             ("response_format", "text"),
-            ("language", "en"),
+            ("language", "auto"),
             ("temperature", "0.0"),
             ("vad", "false"),
         ];
+
+        if !rolling_context.is_empty() {
+            form_fields.push(("prompt", rolling_context));
+        }
 
         for (name, val) in form_fields {
             write!(

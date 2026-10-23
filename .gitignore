@@ -5,7 +5,8 @@
 .Trashes
 
 # Node / Web dependencies
-node_modules/
+node_modules
+**/node_modules
 .next/
 out/
 dist/
@@ -16,7 +17,9 @@ src-tauri/target/
 **/target/
 **/bin/*.exe
 **/bin/*.dll
-**/bin/whisper-*
+**/bin/*.dylib
+**/bin/screencapture-bridge
+**/bin/whisper*
 **/bin/parakeet-*
 **/bin/test-*
 **/bin/stream*
@@ -42,3 +45,4 @@ src-tauri/target/
 
 # Cloned reference repos
 handy-ref/
+whisper.cpp/

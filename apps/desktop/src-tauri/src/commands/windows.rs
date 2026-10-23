@@ -1,6 +1,5 @@
 use crate::state::ActiveWindow;
 
-#[cfg(target_os = "windows")]
 fn friendly_app_name(raw_exe: &str, title: &str) -> String {
     let lower = raw_exe.to_lowercase();
     let stem = lower.trim_end_matches(".exe");
@@ -34,7 +33,6 @@ fn friendly_app_name(raw_exe: &str, title: &str) -> String {
     }
 }
 
-#[cfg(target_os = "windows")]
 fn check_is_media_likely(app_name: &str, title: &str) -> bool {
     let combined = format!("{} {}", app_name.to_lowercase(), title.to_lowercase());
     let keywords = [
@@ -146,6 +144,62 @@ pub fn get_windows_internal() -> Result<Vec<ActiveWindow>, String> {
 
 #[cfg(target_os = "macos")]
 pub fn get_windows_internal() -> Result<Vec<ActiveWindow>, String> {
+    use std::path::PathBuf;
+    use std::process::Command;
+    use serde::Deserialize;
+
+    #[derive(Deserialize)]
+    struct RawWindow {
+        process_id: u32,
+        window_name: String,
+        app_name: String,
+    }
+
+    let cwd = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    let candidates = [
+        cwd.join("bin/screencapture-bridge"),
+        cwd.join("src-tauri/bin/screencapture-bridge"),
+        PathBuf::from("/Volumes/SSD/Gopalan/apps/desktop/src-tauri/bin/screencapture-bridge"),
+    ];
+
+    let bridge_path = candidates.iter().find(|p| p.exists()).cloned();
+    if let Some(path) = bridge_path {
+        if let Ok(output) = Command::new(&path).arg("list-windows").output() {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                if let Ok(raw_list) = serde_json::from_str::<Vec<RawWindow>>(&stdout) {
+                    let self_pid = std::process::id();
+                    let mut windows: Vec<ActiveWindow> = Vec::new();
+
+                    for w in raw_list {
+                        if w.process_id == self_pid {
+                            continue;
+                        }
+                        let name_low = w.app_name.to_lowercase();
+                        if name_low == "dock" || name_low == "notification centre" || name_low == "control centre" {
+                            continue;
+                        }
+
+                        let app_name = friendly_app_name(&w.app_name, &w.window_name);
+                        let is_media_likely = check_is_media_likely(&app_name, &w.window_name);
+
+                        if !windows.iter().any(|existing| existing.process_id == w.process_id && existing.window_name == w.window_name) {
+                            windows.push(ActiveWindow {
+                                process_id: w.process_id,
+                                window_name: w.window_name,
+                                app_name,
+                                is_media_likely,
+                            });
+                        }
+                    }
+
+                    windows.sort_by(|a, b| b.is_media_likely.cmp(&a.is_media_likely));
+                    return Ok(windows);
+                }
+            }
+        }
+    }
+
     Ok(vec![])
 }
 
@@ -157,4 +211,19 @@ pub fn get_windows_internal() -> Result<Vec<ActiveWindow>, String> {
 #[tauri::command]
 pub fn get_active_windows() -> Result<Vec<ActiveWindow>, String> {
     get_windows_internal()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_macos_window_discovery() {
+        let windows = get_windows_internal().expect("Failed to get windows");
+        println!("Discovered {} windows on macOS", windows.len());
+        for w in &windows {
+            println!("  [PID {}] {}: {} (media: {})", w.process_id, w.app_name, w.window_name, w.is_media_likely);
+        }
+        assert!(!windows.is_empty(), "Should discover at least one window on macOS");
+    }
 }
