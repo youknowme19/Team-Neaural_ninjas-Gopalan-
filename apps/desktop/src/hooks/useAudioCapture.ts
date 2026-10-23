@@ -28,55 +28,85 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const animationFrameRef = useRef<number | null>(null);
   const isRecordingRef = useRef(false);
   const restartTimerRef = useRef<any>(null);
-  const activePartialRef = useRef<{ text: string; source: "mic" | "window" } | null>(null);
-  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
-  const displayAvgRef = useRef<number>(0);
+  const sseSourceRef = useRef<EventSource | null>(null);
 
-  // Audio source ref to avoid stale closures in recognition handlers
   const audioSourceRef = useRef(audioSource);
   useEffect(() => {
     audioSourceRef.current = audioSource;
   }, [audioSource]);
 
-  // Keep isRecordingRef and activePartialRef in sync
+  const targetPidRef = useRef(targetPid);
+  useEffect(() => {
+    targetPidRef.current = targetPid;
+  }, [targetPid]);
+
   useEffect(() => {
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  useEffect(() => {
-    activePartialRef.current = activePartial;
-  }, [activePartial]);
-
-  // Safe Recognition Restarter to prevent Chrome InvalidStateError
-  const scheduleRecognitionRestart = useCallback((delay = 120) => {
-    if (!isRecordingRef.current) return;
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
+  // Connect to native macOS ScreenCaptureKit live transcription stream
+  const startScreenCaptureKitStream = useCallback(() => {
+    if (sseSourceRef.current) {
+      sseSourceRef.current.close();
+      sseSourceRef.current = null;
     }
 
-    restartTimerRef.current = setTimeout(() => {
-      if (!isRecordingRef.current || !recognitionRef.current) return;
-      try {
-        recognitionRef.current.start();
-      } catch (e: any) {
-        // If Chrome is still wrapping up previous session, retry after short buffer
-        restartTimerRef.current = setTimeout(() => {
-          if (!isRecordingRef.current || !recognitionRef.current) return;
-          try {
-            recognitionRef.current.start();
-          } catch {}
-        }, 250);
-      }
-    }, delay);
+    const currentPid = targetPidRef.current;
+    const url = `/api/screencapture/transcribe${currentPid ? `?pid=${currentPid}` : ""}`;
+
+    try {
+      const eventSource = new EventSource(url);
+      sseSourceRef.current = eventSource;
+
+      eventSource.onmessage = (event) => {
+        if (!event.data || event.data === "connected") return;
+
+        try {
+          const payload = JSON.parse(event.data);
+          const text = payload.text?.trim() || "";
+          if (!text) return;
+
+          if (payload.is_final) {
+            setSentences((prev) => [
+              ...prev,
+              {
+                id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                text: text,
+                source: "window",
+                timestamp: Date.now(),
+              },
+            ]);
+            setActivePartial(null);
+          } else {
+            setActivePartial({
+              text: text,
+              source: "window",
+            });
+          }
+        } catch (err) {
+          console.warn("ScreenCaptureKit parse error:", err);
+        }
+      };
+
+      eventSource.onerror = () => {
+        // Fallback or retry
+      };
+    } catch (e) {
+      console.warn("ScreenCaptureKit SSE connection failed:", e);
+    }
   }, []);
 
-  // Web Speech Recognition for genuine spoken words
+  const stopScreenCaptureKitStream = useCallback(() => {
+    if (sseSourceRef.current) {
+      sseSourceRef.current.close();
+      sseSourceRef.current = null;
+    }
+  }, []);
+
+  // Web Speech Recognition for personal microphone dictation only
   const startWebSpeechRecognition = useCallback(() => {
     const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechClass) {
-      console.warn("Web Speech API not available in this browser.");
-      return;
-    }
+    if (!SpeechClass) return;
 
     try {
       if (recognitionRef.current) {
@@ -89,20 +119,12 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognition.continuous = true;
       recognition.interimResults = true;
       recognition.lang = "en-US";
-      recognition.maxAlternatives = 1;
 
       recognition.onresult = (event: any) => {
-        const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
-
-        // When in screen share / target mode, gate against ambient room noise:
-        // If the screen audio is silent or paused, discard room talking completely
-        if (isScreenMode && displayAvgRef.current < 2) {
-          return;
-        }
+        // When in ScreenCaptureKit mode, ignore mic recognition
+        if (audioSourceRef.current !== "mic") return;
 
         let interimText = "";
-        const sourceTag: "mic" | "window" = isScreenMode ? "window" : "mic";
-
         for (let i = event.resultIndex; i < event.results.length; ++i) {
           const res = event.results[i];
           const text = res[0]?.transcript?.trim() || "";
@@ -114,7 +136,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
               {
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 text: text,
-                source: sourceTag,
+                source: "mic",
                 timestamp: Date.now(),
               },
             ]);
@@ -127,50 +149,43 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         if (interimText) {
           setActivePartial({
             text: interimText,
-            source: sourceTag,
+            source: "mic",
           });
         }
       };
 
-      recognition.onerror = (e: any) => {
-        console.warn("Speech recognition event:", e.error);
-        if (e.error === "not-allowed") {
-          setActivePartial({
-            text: "Please allow microphone access in your browser address bar.",
-            source: "mic",
-          });
-        } else if (e.error === "no-speech" || e.error === "network") {
-          scheduleRecognitionRestart(150);
+      recognition.onerror = () => {
+        if (isRecordingRef.current && audioSourceRef.current === "mic") {
+          setTimeout(() => {
+            if (isRecordingRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch {}
+            }
+          }, 200);
         }
       };
 
       recognition.onend = () => {
-        // If there was an active partial when recognition stopped, commit it as a sentence
-        if (activePartialRef.current && activePartialRef.current.text.length > 1) {
-          const trailing = activePartialRef.current;
-          setSentences((prev) => [
-            ...prev,
-            {
-              id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-              text: trailing.text,
-              source: trailing.source,
-              timestamp: Date.now(),
-            },
-          ]);
-          setActivePartial(null);
+        if (isRecordingRef.current && audioSourceRef.current === "mic") {
+          setTimeout(() => {
+            if (isRecordingRef.current && recognitionRef.current) {
+              try {
+                recognitionRef.current.start();
+              } catch {}
+            }
+          }, 100);
         }
-
-        scheduleRecognitionRestart(100);
       };
 
       recognition.start();
       recognitionRef.current = recognition;
     } catch (err) {
-      console.warn("Failed to initialize SpeechRecognition:", err);
+      console.warn("SpeechRecognition init error:", err);
     }
-  }, [scheduleRecognitionRestart]);
+  }, []);
 
-  // Audio Level Monitoring via AnalyserNode with Inaudible Media Keep-Alive
+  // Audio Level Monitoring via AnalyserNode
   const startAudioMonitoring = useCallback(async () => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -182,29 +197,15 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         await audioCtx.resume();
       }
 
-      // Inaudible keep-alive carrier prevents Chrome from suspending background tabs
-      if (!keepAliveOscRef.current) {
-        try {
-          const keepAliveGain = audioCtx.createGain();
-          keepAliveGain.gain.value = 0.00001; // Inaudible, but marks tab as active media producer in Chrome
-          const osc = audioCtx.createOscillator();
-          osc.frequency.value = 440;
-          osc.connect(keepAliveGain);
-          keepAliveGain.connect(audioCtx.destination);
-          osc.start();
-          keepAliveOscRef.current = osc;
-        } catch (e) {
-          console.warn("Keep-alive oscillator error:", e);
-        }
-      }
+      const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
 
-      // Connect microphone with active capture (echoCancellation disabled so speaker speech is received cleanly)
-      if (navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
+      // Only open microphone if explicitly in personal mic mode
+      if (!isScreenMode && navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: false,
-              noiseSuppression: false,
+              echoCancellation: true,
+              noiseSuppression: true,
               autoGainControl: true,
             },
           });
@@ -220,7 +221,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect screen stream to analyser only (isolated digital audio capture from Apple ScreenCaptureKit)
+      // Connect screen stream to analyser for live volume visualizer
       if (displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0) {
         try {
           const displaySource = audioCtx.createMediaStreamSource(displayStreamRef.current);
@@ -238,7 +239,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         let displayAvg = 0;
         const currentIsScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
 
-        if (micAnalyserRef.current) {
+        if (micAnalyserRef.current && !currentIsScreenMode) {
           const micBuf = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
           micAnalyserRef.current.getByteFrequencyData(micBuf);
           let sum = 0;
@@ -252,17 +253,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           let sum = 0;
           for (let i = 0; i < displayBuf.length; i++) sum += displayBuf[i];
           displayAvg = sum / displayBuf.length;
-          displayAvgRef.current = displayAvg;
         }
 
-        // When in screen share or target lock, audio visualizer is strictly driven by screen audio (0% room mic)
-        let activeAvg = 0;
-        if (currentIsScreenMode) {
-          activeAvg = displayAvg;
-        } else {
-          activeAvg = micAvg;
-        }
-
+        // When in screen share or target lock, audio level is 100% strictly screen audio
+        const activeAvg = currentIsScreenMode ? displayAvg : micAvg;
         const normalized = Math.min(1, activeAvg / 128);
         setAudioLevel(normalized);
 
@@ -271,7 +265,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
       updateLevel();
     } catch (err) {
-      console.warn("Could not start audio monitoring:", err);
+      console.warn("Audio monitoring error:", err);
     }
   }, []);
 
@@ -283,13 +277,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     if (restartTimerRef.current) {
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
-    }
-    if (keepAliveOscRef.current) {
-      try {
-        keepAliveOscRef.current.stop();
-        keepAliveOscRef.current.disconnect();
-      } catch {}
-      keepAliveOscRef.current = null;
     }
     if (micAnalyserRef.current) {
       micAnalyserRef.current = null;
@@ -305,34 +292,35 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setIsRecording(true);
     isRecordingRef.current = true;
 
-    // 1. Start Speech Recognition IMMEDIATELY within user gesture context
-    startWebSpeechRecognition();
+    const isScreenMode = audioSource !== "mic" || displayStreamRef.current !== null;
 
-    // 2. Start Web Audio Monitoring for Real-Time Soundwave Meter & Media Keep-Alive
+    if (isScreenMode) {
+      // 1. Connect directly to native Apple ScreenCaptureKit
+      startScreenCaptureKitStream();
+    } else {
+      // 2. Personal mic mode
+      startWebSpeechRecognition();
+    }
+
+    // 3. Audio visualizer monitoring
     await startAudioMonitoring();
 
-    // 3. Trigger Tauri Native Backend (if running in Tauri with native ScreenCaptureKit)
+    // 4. Trigger Tauri Native Backend if running in desktop app
     try {
       await invoke("start_recording", {
         source: audioSource,
         targetPid: audioSource === "target" ? targetPid : null,
       });
-    } catch (err) {
-      // Handled gracefully in browser mode
-    }
-  }, [audioSource, targetPid, startAudioMonitoring, startWebSpeechRecognition]);
+    } catch (err) {}
+  }, [audioSource, targetPid, startAudioMonitoring, startWebSpeechRecognition, startScreenCaptureKitStream]);
 
   const stop = useCallback(async () => {
     setIsRecording(false);
     isRecordingRef.current = false;
     setActivePartial(null);
 
-    if (restartTimerRef.current) {
-      clearTimeout(restartTimerRef.current);
-      restartTimerRef.current = null;
-    }
+    stopScreenCaptureKitStream();
 
-    // Stop Web Speech
     if (recognitionRef.current) {
       try {
         recognitionRef.current.stop();
@@ -340,16 +328,14 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognitionRef.current = null;
     }
 
-    // Stop Audio Monitoring
     stopAudioMonitoring();
 
-    // Stop Tauri backend
     try {
       await invoke("stop_recording");
     } catch {}
-  }, [stopAudioMonitoring]);
+  }, [stopAudioMonitoring, stopScreenCaptureKitStream]);
 
-  // Google Meet-style Screen & Window Picker (Powered by Apple ScreenCaptureKit in macOS Chrome)
+  // Google Meet-style Screen & Window Picker
   const pickDisplayMedia = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -377,7 +363,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       const label = videoTrack?.label || "Target Screen / Window";
       setTargetStreamLabel(label);
 
-      // Connect screen audio to analyser only (no destination playback to avoid acoustic comb-filter)
+      // Connect screen audio to analyser only
       if (hasAudio) {
         try {
           const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -399,7 +385,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Automatically initiate live recording and speech transcription
+      // Automatically initiate live recording and ScreenCaptureKit transcription
       start();
 
       videoTrack.onended = () => {
@@ -438,7 +424,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setActivePartial(null);
   }, []);
 
-  // Listen to Tauri events (for desktop native execution with ScreenCaptureKit)
+  // Listen to Tauri events (for desktop native execution)
   useEffect(() => {
     let unlistenToken: (() => void) | undefined;
     let unlistenState: (() => void) | undefined;
@@ -477,26 +463,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       unlistenState = unsub;
     }).catch(() => {});
 
-    // Ensure speech recognition restarts when user switches back from another tab
-    const handleVisibilityChange = () => {
-      if (document.visibilityState === "visible" && isRecordingRef.current) {
-        scheduleRecognitionRestart(100);
-      }
-    };
-    document.addEventListener("visibilitychange", handleVisibilityChange);
-
     return () => {
       if (unlistenToken) unlistenToken();
       if (unlistenState) unlistenState();
-      document.removeEventListener("visibilitychange", handleVisibilityChange);
       stopAudioMonitoring();
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.stop();
-        } catch {}
-      }
+      stopScreenCaptureKitStream();
     };
-  }, [start, stop, stopAudioMonitoring, scheduleRecognitionRestart]);
+  }, [start, stop, stopAudioMonitoring, stopScreenCaptureKitStream]);
 
   return {
     isRecording,

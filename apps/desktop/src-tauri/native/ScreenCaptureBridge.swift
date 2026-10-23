@@ -2,6 +2,7 @@ import Foundation
 import ScreenCaptureKit
 import CoreGraphics
 import AVFoundation
+import Speech
 
 struct WindowInfo: Codable {
     let window_name: String
@@ -45,6 +46,86 @@ class AudioStreamDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
     }
 }
 
+class AudioTranscriptionDelegate: NSObject, SCStreamOutput, SCStreamDelegate {
+    private let speechRecognizer = SFSpeechRecognizer(locale: Locale(identifier: "en-US"))
+    private var recognitionRequest: SFSpeechAudioBufferRecognitionRequest?
+    private var recognitionTask: SFSpeechRecognitionTask?
+    private let recognitionQueue = DispatchQueue(label: "livespeak.speech.queue")
+
+    override init() {
+        super.init()
+        setupRecognition()
+    }
+
+    private func setupRecognition() {
+        recognitionQueue.async { [weak self] in
+            guard let self = self else { return }
+            self.recognitionTask?.cancel()
+            self.recognitionTask = nil
+            self.recognitionRequest = nil
+
+            guard let recognizer = self.speechRecognizer, recognizer.isAvailable else {
+                fputs("ScreenCaptureBridge: SFSpeechRecognizer is not available\n", stderr)
+                return
+            }
+
+            let request = SFSpeechAudioBufferRecognitionRequest()
+            request.shouldReportPartialResults = true
+            if #available(macOS 13.0, *) {
+                request.addsPunctuation = true
+            }
+            if recognizer.supportsOnDeviceRecognition {
+                request.requiresOnDeviceRecognition = true
+            }
+            self.recognitionRequest = request
+
+            self.recognitionTask = recognizer.recognitionTask(with: request) { [weak self] result, error in
+                guard let self = self else { return }
+
+                if let result = result {
+                    let formatted = result.bestTranscription.formattedString
+                    let isFinal = result.isFinal
+
+                    let payload: [String: Any] = [
+                        "text": formatted,
+                        "is_final": isFinal,
+                        "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+                    ]
+
+                    if let jsonData = try? JSONSerialization.data(withJSONObject: payload),
+                       let jsonString = String(data: jsonData, encoding: .utf8) {
+                        print(jsonString)
+                        fflush(stdout)
+                    }
+
+                    if isFinal {
+                        self.setupRecognition()
+                    }
+                }
+
+                if let error = error {
+                    let desc = error.localizedDescription
+                    if !desc.contains("cancelled") {
+                        fputs("ScreenCaptureBridge recognition note: \(desc)\n", stderr)
+                    }
+                    DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) {
+                        self.setupRecognition()
+                    }
+                }
+            }
+        }
+    }
+
+    func stream(_ stream: SCStream, didOutputSampleBuffer sampleBuffer: CMSampleBuffer, of type: SCStreamOutputType) {
+        guard type == .audio, sampleBuffer.isValid else { return }
+        recognitionRequest?.appendAudioSampleBuffer(sampleBuffer)
+    }
+
+    func stream(_ stream: SCStream, didStopWithError error: Error) {
+        fputs("ScreenCapture stream stopped: \(error.localizedDescription)\n", stderr)
+    }
+}
+
 @main
 struct ScreenCaptureBridge {
     static func main() async {
@@ -61,6 +142,12 @@ struct ScreenCaptureBridge {
             return
         }
 
+        if args.count > 1 && args[1] == "transcribe" {
+            let pidArg = args.count > 2 ? Int(args[2]) : nil
+            await startAudioTranscription(targetPid: pidArg)
+            return
+        }
+
         printUsage()
     }
 
@@ -69,6 +156,7 @@ struct ScreenCaptureBridge {
         Usage:
           ScreenCaptureBridge list-windows
           ScreenCaptureBridge capture [process_id]
+          ScreenCaptureBridge transcribe [process_id]
         """
         fputs("\(usage)\n", stderr)
     }
@@ -183,6 +271,50 @@ struct ScreenCaptureBridge {
 
             try await stream.startCapture()
             fputs("ScreenCaptureBridge: Stream started successfully\n", stderr)
+
+            while true {
+                try await Task.sleep(nanoseconds: 1_000_000_000)
+            }
+        } catch {
+            fputs("ScreenCaptureBridge error: \(error.localizedDescription)\n", stderr)
+            exit(1)
+        }
+    }
+
+    static func startAudioTranscription(targetPid: Int?) async {
+        do {
+            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
+            guard let display = content.displays.first else {
+                fputs("Error: No display found\n", stderr)
+                exit(1)
+            }
+
+            let filter: SCContentFilter
+
+            if let pid = targetPid, let app = content.applications.first(where: { $0.processID == pid_t(pid) }) {
+                fputs("ScreenCaptureBridge: Transcribing audio from PID \(pid) (\(app.applicationName))\n", stderr)
+                filter = SCContentFilter(display: display, including: [app], exceptingWindows: [])
+            } else {
+                fputs("ScreenCaptureBridge: Transcribing all system audio\n", stderr)
+                filter = SCContentFilter(display: display, excludingWindows: [])
+            }
+
+            let config = SCStreamConfiguration()
+            config.capturesAudio = true
+            config.excludesCurrentProcessAudio = true
+            config.sampleRate = 16000
+            config.channelCount = 1
+
+            config.width = 100
+            config.height = 100
+            config.minimumFrameInterval = CMTime(value: 1, timescale: 1)
+
+            let delegate = AudioTranscriptionDelegate()
+            let stream = SCStream(filter: filter, configuration: config, delegate: delegate)
+            try stream.addStreamOutput(delegate, type: .audio, sampleHandlerQueue: DispatchQueue(label: "livespeak.transcription.queue"))
+
+            try await stream.startCapture()
+            fputs("ScreenCaptureBridge: Live transcription started successfully\n", stderr)
 
             while true {
                 try await Task.sleep(nanoseconds: 1_000_000_000)
