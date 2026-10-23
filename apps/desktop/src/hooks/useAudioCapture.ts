@@ -29,7 +29,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const isRecordingRef = useRef(false);
   const restartTimerRef = useRef<any>(null);
   const activePartialRef = useRef<{ text: string; source: "mic" | "window" } | null>(null);
-  const lastSpeechTimeRef = useRef<number>(Date.now());
   const keepAliveOscRef = useRef<OscillatorNode | null>(null);
   const displayAvgRef = useRef<number>(0);
 
@@ -79,7 +78,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     }, delay);
   }, []);
 
-  // Web Speech Recognition for live spoken words
+  // Web Speech Recognition for genuine spoken words
   const startWebSpeechRecognition = useCallback(() => {
     const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
     if (!SpeechClass) {
@@ -103,13 +102,11 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognition.onresult = (event: any) => {
         const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
 
-        // When sharing a screen/movie, strictly reject room noise if screen audio is inactive
+        // In screen mode, strictly ignore room noise if screen audio is silent
         if (isScreenMode && displayAvgRef.current < 6) {
-          // Screen audio is silent; ignore room microphone talking/noise completely
           return;
         }
 
-        lastSpeechTimeRef.current = Date.now();
         let interimText = "";
         const sourceTag: "mic" | "window" = isScreenMode ? "window" : "mic";
 
@@ -240,7 +237,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect screen stream to analyser only (isolated digital audio capture)
+      // Connect screen stream to analyser only (isolated digital audio capture from Apple ScreenCaptureKit)
       if (displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0) {
         try {
           const displaySource = audioCtx.createMediaStreamSource(displayStreamRef.current);
@@ -252,19 +249,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           console.warn("Screen audio track routing error:", e);
         }
       }
-
-      // Live dialogue cues driven directly by the shared screen's audio track
-      const fallbackDialogues = [
-        "When you look at your phone first thing in the morning, your brain experiences a dopamine spike.",
-        "The notifications create a constant state of hyper-vigilance and split attention.",
-        "Research shows that simply having your smartphone visible on your desk reduces cognitive capacity.",
-        "If you want to reclaim your deep focus, you have to create structural boundaries with your devices.",
-        "Setting app limits and turning off non-essential notifications restores baseline mental energy.",
-        "Deep work requires uninterrupted attention blocks without digital friction.",
-        "Your brain adapts to whatever stimuli you feed it most consistently.",
-      ];
-      let fallbackIndex = 0;
-      let speechHoldTime = 0;
 
       const updateLevel = () => {
         let micAvg = 0;
@@ -286,42 +270,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           for (let i = 0; i < displayBuf.length; i++) sum += displayBuf[i];
           displayAvg = sum / displayBuf.length;
           displayAvgRef.current = displayAvg;
-
-          // Track dialogue sound coming exclusively from the shared screen
-          if (displayAvg > 8) {
-            speechHoldTime++;
-            const now = Date.now();
-
-            // Stream dialogue cue if active screen sound persists
-            if (speechHoldTime > 110 && now - lastSpeechTimeRef.current > 3200) {
-              speechHoldTime = 0;
-              lastSpeechTimeRef.current = now;
-
-              const dialogue = fallbackDialogues[fallbackIndex % fallbackDialogues.length];
-              fallbackIndex++;
-
-              // Stream with live partial effect
-              setActivePartial({
-                text: `${dialogue.slice(0, 32)}...`,
-                source: "window",
-              });
-
-              setTimeout(() => {
-                setActivePartial(null);
-                setSentences((prev) => [
-                  ...prev,
-                  {
-                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
-                    text: dialogue,
-                    source: "window",
-                    timestamp: Date.now(),
-                  },
-                ]);
-              }, 400);
-            }
-          } else {
-            speechHoldTime = Math.max(0, speechHoldTime - 1);
-          }
         }
 
         // When in screen share or target lock, audio level is 100% strictly driven by screen audio (0% room mic)
@@ -380,7 +328,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     // 2. Start Web Audio Monitoring for Real-Time Soundwave Meter & Media Keep-Alive
     await startAudioMonitoring();
 
-    // 3. Trigger Tauri Native Backend (if running in Tauri)
+    // 3. Trigger Tauri Native Backend (if running in Tauri with native ScreenCaptureKit)
     try {
       await invoke("start_recording", {
         source: audioSource,
@@ -418,7 +366,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     } catch {}
   }, [stopAudioMonitoring]);
 
-  // Google Meet-style Screen & Window Picker
+  // Google Meet-style Screen & Window Picker (Powered by Apple ScreenCaptureKit in macOS Chrome)
   const pickDisplayMedia = useCallback(async () => {
     try {
       if (!navigator.mediaDevices?.getDisplayMedia) {
@@ -528,7 +476,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setActivePartial(null);
   }, []);
 
-  // Listen to Tauri events (for desktop native execution)
+  // Listen to Tauri events (for desktop native execution with ScreenCaptureKit)
   useEffect(() => {
     let unlistenToken: (() => void) | undefined;
     let unlistenState: (() => void) | undefined;
