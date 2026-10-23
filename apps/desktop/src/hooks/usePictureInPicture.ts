@@ -12,7 +12,10 @@ declare global {
 
 export function usePictureInPicture(
   sentences: TranscriptSentence[],
-  activePartial: { text: string; source: "mic" | "window" } | null
+  activePartial: { text: string; source: "mic" | "window" } | null,
+  audioLevel: number = 0,
+  targetLabel: string | null = null,
+  isRecording: boolean = false
 ) {
   const [isPipActive, setIsPipActive] = useState(false);
   const pipWindowRef = useRef<Window | null>(null);
@@ -26,8 +29,8 @@ export function usePictureInPicture(
 
     try {
       const pipWin = await window.documentPictureInPicture.requestWindow({
-        width: 440,
-        height: 180,
+        width: 480,
+        height: 220,
       });
 
       pipWindowRef.current = pipWin;
@@ -36,14 +39,67 @@ export function usePictureInPicture(
       // Inject minimal dark mode & glass styles
       const style = pipWin.document.createElement("style");
       style.textContent = `
+        * {
+          box-sizing: border-box;
+        }
         body {
           margin: 0;
-          padding: 12px;
-          background: rgba(15, 17, 23, 0.95);
+          padding: 10px 12px;
+          background: rgba(10, 12, 18, 0.96);
           color: #f8fafc;
-          font-family: -apple-system, BlinkMacSystemFont, "Inter", sans-serif;
+          font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Inter", sans-serif;
           user-select: none;
           overflow-y: auto;
+        }
+        .header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          margin-bottom: 8px;
+          padding-bottom: 6px;
+          border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+        }
+        .header-left {
+          display: flex;
+          align-items: center;
+          gap: 6px;
+        }
+        .dot {
+          width: 7px;
+          height: 7px;
+          border-radius: 50%;
+          background: #64748b;
+        }
+        .dot.active {
+          background: #10b981;
+          box-shadow: 0 0 8px #10b981;
+        }
+        .title {
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0.5px;
+          color: #38bdf8;
+          text-transform: uppercase;
+        }
+        .sub {
+          font-size: 10px;
+          color: #94a3b8;
+          max-width: 220px;
+          white-space: nowrap;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+        .audio-bar {
+          width: 50px;
+          height: 5px;
+          background: rgba(255, 255, 255, 0.1);
+          border-radius: 3px;
+          overflow: hidden;
+        }
+        .audio-fill {
+          height: 100%;
+          background: #10b981;
+          transition: width 0.08s ease;
         }
         .caption-container {
           display: flex;
@@ -51,37 +107,69 @@ export function usePictureInPicture(
           gap: 6px;
         }
         .bubble {
-          padding: 6px 10px;
+          padding: 8px 12px;
           border-radius: 8px;
-          font-size: 13px;
-          line-height: 1.4;
+          font-size: 14px;
+          line-height: 1.45;
           font-weight: 500;
           box-shadow: 0 4px 12px rgba(0,0,0,0.5);
         }
         .mic {
-          background: rgba(14, 165, 233, 0.2);
+          background: rgba(14, 165, 233, 0.18);
           border: 1px solid rgba(14, 165, 233, 0.4);
-          color: #7dd3fc;
+          color: #f0f9ff;
         }
         .window {
-          background: rgba(16, 185, 129, 0.2);
+          background: rgba(16, 185, 129, 0.18);
           border: 1px solid rgba(16, 185, 129, 0.4);
-          color: #6ee7b7;
+          color: #ecfdf5;
         }
         .badge {
           font-size: 9px;
+          font-weight: 700;
           text-transform: uppercase;
           font-family: monospace;
-          opacity: 0.8;
           margin-bottom: 2px;
+          display: inline-block;
+        }
+        .badge-mic {
+          color: #38bdf8;
+        }
+        .badge-window {
+          color: #34d399;
         }
         .partial {
           font-style: italic;
-          opacity: 0.85;
+          opacity: 0.9;
           border-style: dashed;
+        }
+        .empty-state {
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          text-align: center;
+          padding: 24px 12px;
+          color: #94a3b8;
+          font-size: 12px;
+          gap: 6px;
+        }
+        .status-pill {
+          font-size: 10px;
+          font-weight: 600;
+          padding: 2px 8px;
+          border-radius: 12px;
+          background: rgba(16, 185, 129, 0.15);
+          color: #34d399;
+          border: 1px solid rgba(16, 185, 129, 0.3);
         }
       `;
       pipWin.document.head.appendChild(style);
+
+      const header = pipWin.document.createElement("div");
+      header.id = "pip-header";
+      header.className = "header";
+      pipWin.document.body.appendChild(header);
 
       const root = pipWin.document.createElement("div");
       root.id = "pip-root";
@@ -100,7 +188,7 @@ export function usePictureInPicture(
     }
   }, []);
 
-  // Method 2: Video/Canvas Picture-in-Picture fallback (universally supported across Safari and Chrome)
+  // Method 2: Video/Canvas Picture-in-Picture fallback
   const openCanvasPiP = useCallback(async () => {
     try {
       if (!canvasRef.current) {
@@ -154,7 +242,6 @@ export function usePictureInPicture(
       return;
     }
 
-    // Try Document PiP first, then fallback to Canvas PiP
     const success = await openDocumentPiP();
     if (!success) {
       await openCanvasPiP();
@@ -166,8 +253,23 @@ export function usePictureInPicture(
     if (!isPipActive || !pipWindowRef.current) return;
 
     const pipDoc = pipWindowRef.current.document;
+    const header = pipDoc.getElementById("pip-header");
     const root = pipDoc.getElementById("pip-root");
-    if (!root) return;
+    if (!header || !root) return;
+
+    // Update Header with audio bar
+    const labelText = targetLabel || (isRecording ? "Live Audio Active" : "Waiting for audio");
+    const audioPct = Math.min(100, Math.round(audioLevel * 100));
+    header.innerHTML = `
+      <div class="header-left">
+        <div class="dot ${isRecording ? "active" : ""}"></div>
+        <span class="title">LiveSpeak</span>
+        <span class="sub">${escapeHtml(labelText)}</span>
+      </div>
+      <div class="audio-bar" title="Live audio input volume">
+        <div class="audio-fill" style="width: ${audioPct}%"></div>
+      </div>
+    `;
 
     // Render recent sentences
     const recent = sentences.slice(-3);
@@ -175,7 +277,9 @@ export function usePictureInPicture(
       .map(
         (s) => `
       <div class="bubble ${s.source}">
-        <div class="badge">[${s.source === "mic" ? "You" : "Movie / Screen"}]</div>
+        <div class="badge ${s.source === "mic" ? "badge-mic" : "badge-window"}">
+          [${s.source === "mic" ? "Speaker / Mic" : "Movie / Screen"}]
+        </div>
         <div>${escapeHtml(s.text)}</div>
       </div>
     `
@@ -183,23 +287,38 @@ export function usePictureInPicture(
       .join("");
 
     if (activePartial) {
+      const isMic = activePartial.source === "mic";
       html += `
         <div class="bubble ${activePartial.source} partial">
-          <div class="badge">[${activePartial.source === "mic" ? "You (Live)" : "Movie (Live)"}]</div>
+          <div class="badge ${isMic ? "badge-mic" : "badge-window"}">
+            [${isMic ? "Speaker (Live)" : "Movie (Live)"}]
+          </div>
           <div>${escapeHtml(activePartial.text)}</div>
         </div>
       `;
     }
 
     if (!html) {
-      html = `<div style="color: #64748b; font-size: 11px; text-align: center; margin-top: 40px;">
-        Floating live captions ready. Play your movie or speaking...
-      </div>`;
+      if (audioLevel > 0.04) {
+        html = `
+          <div class="empty-state">
+            <span class="status-pill">Audio Detected - Transcribing</span>
+            <div>Capturing live dialogue from ${escapeHtml(labelText)}...</div>
+          </div>
+        `;
+      } else {
+        html = `
+          <div class="empty-state">
+            <span class="status-pill">${isRecording ? "Listening" : "Ready"}</span>
+            <div>Play video or speak to display live captions...</div>
+          </div>
+        `;
+      }
     }
 
     root.innerHTML = html;
     pipWindowRef.current.scrollTo(0, pipDoc.body.scrollHeight);
-  }, [sentences, activePartial, isPipActive]);
+  }, [sentences, activePartial, isPipActive, audioLevel, targetLabel, isRecording]);
 
   // Render loop for Canvas PiP fallback
   useEffect(() => {
@@ -210,33 +329,43 @@ export function usePictureInPicture(
     if (!ctx) return;
 
     const render = () => {
-      ctx.fillStyle = "rgba(15, 23, 42, 0.95)";
+      ctx.fillStyle = "rgba(10, 12, 18, 0.96)";
       ctx.fillRect(0, 0, canvas.width, canvas.height);
 
-      // Title bar
+      // Header
       ctx.fillStyle = "#38bdf8";
-      ctx.font = "bold 13px -apple-system, sans-serif";
-      ctx.fillText("LiveSpeak Floating Subtitles", 16, 26);
+      ctx.font = "bold 12px -apple-system, sans-serif";
+      ctx.fillText("LiveSpeak Accessible Captions", 16, 24);
+
+      if (targetLabel) {
+        ctx.fillStyle = "#94a3b8";
+        ctx.font = "11px -apple-system, sans-serif";
+        ctx.fillText(targetLabel.slice(0, 35), 230, 24);
+      }
 
       // Draw last 2 sentences
       const displaySentences = sentences.slice(-2);
-      let y = 60;
+      let y = 62;
 
       for (const item of displaySentences) {
         ctx.fillStyle = item.source === "mic" ? "#38bdf8" : "#34d399";
-        ctx.font = "bold 11px monospace";
+        ctx.font = "bold 10px monospace";
         ctx.fillText(`[${item.source === "mic" ? "SPEAKER" : "MOVIE / DIALOGUE"}]`, 16, y);
 
         ctx.fillStyle = "#f8fafc";
         ctx.font = "14px -apple-system, sans-serif";
-        ctx.fillText(item.text.slice(0, 50), 16, y + 20);
+        ctx.fillText(item.text.slice(0, 52), 16, y + 20);
         y += 48;
       }
 
       if (activePartial) {
         ctx.fillStyle = activePartial.source === "mic" ? "#7dd3fc" : "#6ee7b7";
         ctx.font = "italic 13px -apple-system, sans-serif";
-        ctx.fillText(`Live: ${activePartial.text.slice(0, 50)}...`, 16, y + 16);
+        ctx.fillText(`Live: ${activePartial.text.slice(0, 52)}...`, 16, y + 16);
+      } else if (displaySentences.length === 0) {
+        ctx.fillStyle = "#64748b";
+        ctx.font = "12px -apple-system, sans-serif";
+        ctx.fillText("Capturing audio... Play movie or speak", 16, 100);
       }
 
       animationFrameRef.current = requestAnimationFrame(render);
@@ -249,7 +378,7 @@ export function usePictureInPicture(
         cancelAnimationFrame(animationFrameRef.current);
       }
     };
-  }, [sentences, activePartial, isPipActive]);
+  }, [sentences, activePartial, isPipActive, targetLabel]);
 
   return {
     isPipActive,

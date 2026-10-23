@@ -41,10 +41,24 @@ export const WidgetView: React.FC = () => {
     pickDisplayMedia,
     stopDisplayMedia,
     toggle: toggleRecording,
+    start: startRecording,
     clearTranscript,
   } = useAudioCapture(audioSource, selectedPid);
 
-  const { isPipActive, togglePiP } = usePictureInPicture(sentences, activePartial);
+  const { isPipActive, togglePiP } = usePictureInPicture(
+    sentences,
+    activePartial,
+    audioLevel,
+    targetStreamLabel,
+    isRecording
+  );
+
+  const handleTogglePiP = () => {
+    if (!isRecording) {
+      startRecording();
+    }
+    togglePiP();
+  };
 
   const handleOpenBroadcast = async () => {
     setIsQrModalOpen(true);
@@ -111,7 +125,7 @@ export const WidgetView: React.FC = () => {
           stream={displayStream}
           label={targetStreamLabel}
           onStop={stopDisplayMedia}
-          onTogglePiP={togglePiP}
+          onTogglePiP={handleTogglePiP}
           isPipActive={isPipActive}
           hasAudio={hasDisplayAudio}
         />
@@ -142,7 +156,7 @@ export const WidgetView: React.FC = () => {
         onClear={clearTranscript}
         onOpenBroadcast={handleOpenBroadcast}
         isBroadcasting={isBroadcasting}
-        onTogglePiP={togglePiP}
+        onTogglePiP={handleTogglePiP}
         isPipActive={isPipActive}
       />
 

@@ -26,6 +26,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const micStreamRef = useRef<MediaStream | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const isRecordingRef = useRef(false);
 
   // Audio source ref to avoid stale closures in recognition handlers
   const audioSourceRef = useRef(audioSource);
@@ -33,78 +34,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     audioSourceRef.current = audioSource;
   }, [audioSource]);
 
-  // Google Meet-style Screen & Window Picker
-  const pickDisplayMedia = useCallback(async () => {
-    try {
-      if (!navigator.mediaDevices?.getDisplayMedia) {
-        alert("Screen capture is not supported in this environment.");
-        return;
-      }
-
-      const stream = await navigator.mediaDevices.getDisplayMedia({
-        video: true,
-        audio: {
-          echoCancellation: false,
-          noiseSuppression: false,
-          autoGainControl: false,
-        },
-      });
-
-      displayStreamRef.current = stream;
-      setDisplayStream(stream);
-
-      const videoTrack = stream.getVideoTracks()[0];
-      const audioTracks = stream.getAudioTracks();
-      const hasAudio = audioTracks.length > 0;
-      setHasDisplayAudio(hasAudio);
-
-      const label = videoTrack?.label || "Target Screen / Window";
-      setTargetStreamLabel(label);
-
-      // Connect screen/window audio track to Web Audio Analyser
-      if (hasAudio) {
-        try {
-          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-          if (!audioContextRef.current) {
-            audioContextRef.current = new AudioCtx();
-          }
-          const audioCtx = audioContextRef.current;
-          if (audioCtx.state === "suspended") {
-            await audioCtx.resume();
-          }
-
-          const displaySourceNode = audioCtx.createMediaStreamSource(stream);
-          const displayAnalyser = audioCtx.createAnalyser();
-          displayAnalyser.fftSize = 64;
-          displaySourceNode.connect(displayAnalyser);
-          displayAnalyserRef.current = displayAnalyser;
-        } catch (e) {
-          console.warn("Could not route screen audio track to analyser:", e);
-        }
-      }
-
-      videoTrack.onended = () => {
-        setTargetStreamLabel(null);
-        setDisplayStream(null);
-        setHasDisplayAudio(false);
-        displayStreamRef.current = null;
-        displayAnalyserRef.current = null;
-      };
-    } catch (err) {
-      console.warn("Screen/Window selection canceled or failed:", err);
-    }
-  }, []);
-
-  const stopDisplayMedia = useCallback(() => {
-    if (displayStreamRef.current) {
-      displayStreamRef.current.getTracks().forEach((t) => t.stop());
-      displayStreamRef.current = null;
-    }
-    setDisplayStream(null);
-    setHasDisplayAudio(false);
-    setTargetStreamLabel(null);
-    displayAnalyserRef.current = null;
-  }, []);
+  // Keep isRecordingRef in sync
+  useEffect(() => {
+    isRecordingRef.current = isRecording;
+  }, [isRecording]);
 
   // Web Speech Recognition for live spoken words
   const startWebSpeechRecognition = useCallback(() => {
@@ -115,6 +48,12 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     }
 
     try {
+      if (recognitionRef.current) {
+        try {
+          recognitionRef.current.abort();
+        } catch {}
+      }
+
       const recognition = new SpeechClass();
       recognition.continuous = true;
       recognition.interimResults = true;
@@ -155,10 +94,16 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
       recognition.onerror = (e: any) => {
         console.warn("Speech recognition event:", e.error);
+        if (e.error === "not-allowed") {
+          setActivePartial({
+            text: "Please click the microphone icon in your browser URL bar to allow microphone input.",
+            source: "mic",
+          });
+        }
       };
 
       recognition.onend = () => {
-        if (recognitionRef.current && isRecording) {
+        if (isRecordingRef.current) {
           try {
             recognition.start();
           } catch {}
@@ -170,7 +115,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     } catch (err) {
       console.warn("Failed to initialize SpeechRecognition:", err);
     }
-  }, [isRecording]);
+  }, []);
 
   // Audio Level Monitoring via AnalyserNode (reads both Mic and Shared Screen / Movie Audio)
   const startAudioMonitoring = useCallback(async () => {
@@ -184,13 +129,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         await audioCtx.resume();
       }
 
-      // Connect microphone
-      if (navigator.mediaDevices?.getUserMedia) {
+      // Connect microphone with disabled echo cancellation so speaker output is captured cleanly
+      if (navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
+              echoCancellation: false,
+              noiseSuppression: false,
               autoGainControl: true,
             },
           });
@@ -202,7 +147,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           micSource.connect(micAnalyser);
           micAnalyserRef.current = micAnalyser;
         } catch (e) {
-          console.warn("Microphone access unavailable for audio visualizer:", e);
+          console.warn("Microphone access unavailable:", e);
         }
       }
 
@@ -213,11 +158,14 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           const displayAnalyser = audioCtx.createAnalyser();
           displayAnalyser.fftSize = 64;
           displaySource.connect(displayAnalyser);
+          displaySource.connect(audioCtx.destination);
           displayAnalyserRef.current = displayAnalyser;
         } catch (e) {
           console.warn("Screen audio track routing error:", e);
         }
       }
+
+      let speechActivityCounter = 0;
 
       const updateLevel = () => {
         let micAvg = 0;
@@ -237,6 +185,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           let sum = 0;
           for (let i = 0; i < displayBuf.length; i++) sum += displayBuf[i];
           displayAvg = sum / displayBuf.length;
+
+          // If sustained speech audio from movie track is detected
+          if (displayAvg > 15) {
+            speechActivityCounter++;
+          } else {
+            speechActivityCounter = Math.max(0, speechActivityCounter - 1);
+          }
         }
 
         const currentSource = audioSourceRef.current;
@@ -244,7 +199,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         if (currentSource === "mic") {
           activeAvg = micAvg;
         } else if (currentSource === "target" || currentSource === "system") {
-          // Take whichever has higher amplitude, prioritizing movie audio if present
           activeAvg = displayAvg > 4 ? displayAvg : Math.max(micAvg, displayAvg);
         }
 
@@ -277,8 +231,9 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
   const start = useCallback(async () => {
     setIsRecording(true);
+    isRecordingRef.current = true;
 
-    // 1. Start Web Audio Monitoring for Real-Time Soundwave Meter
+    // 1. Start Web Audio Monitoring for Real-Time Soundwave Meter & Speaker Routing
     await startAudioMonitoring();
 
     // 2. Start Real Live Speech Recognition
@@ -291,12 +246,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         targetPid: audioSource === "target" ? targetPid : null,
       });
     } catch (err) {
-      // In regular browser mode, invoke is a no-op, handled by Web Speech
+      // Handled gracefully in browser mode
     }
   }, [audioSource, targetPid, startAudioMonitoring, startWebSpeechRecognition]);
 
   const stop = useCallback(async () => {
     setIsRecording(false);
+    isRecordingRef.current = false;
     setActivePartial(null);
 
     // Stop Web Speech
@@ -315,6 +271,83 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       await invoke("stop_recording");
     } catch {}
   }, [stopAudioMonitoring]);
+
+  // Google Meet-style Screen & Window Picker
+  const pickDisplayMedia = useCallback(async () => {
+    try {
+      if (!navigator.mediaDevices?.getDisplayMedia) {
+        alert("Screen capture is not supported in this environment.");
+        return;
+      }
+
+      const stream = await navigator.mediaDevices.getDisplayMedia({
+        video: true,
+        audio: {
+          echoCancellation: false,
+          noiseSuppression: false,
+          autoGainControl: false,
+        },
+      });
+
+      displayStreamRef.current = stream;
+      setDisplayStream(stream);
+
+      const videoTrack = stream.getVideoTracks()[0];
+      const audioTracks = stream.getAudioTracks();
+      const hasAudio = audioTracks.length > 0;
+      setHasDisplayAudio(hasAudio);
+
+      const label = videoTrack?.label || "Target Screen / Window";
+      setTargetStreamLabel(label);
+
+      // Connect screen/window audio track to Web Audio Analyser and route to destination speakers
+      if (hasAudio) {
+        try {
+          const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+          if (!audioContextRef.current) {
+            audioContextRef.current = new AudioCtx();
+          }
+          const audioCtx = audioContextRef.current;
+          if (audioCtx.state === "suspended") {
+            await audioCtx.resume();
+          }
+
+          const displaySourceNode = audioCtx.createMediaStreamSource(stream);
+          const displayAnalyser = audioCtx.createAnalyser();
+          displayAnalyser.fftSize = 64;
+          displaySourceNode.connect(displayAnalyser);
+          displaySourceNode.connect(audioCtx.destination);
+          displayAnalyserRef.current = displayAnalyser;
+        } catch (e) {
+          console.warn("Could not route screen audio track:", e);
+        }
+      }
+
+      // Automatically initiate live recording and speech transcription
+      start();
+
+      videoTrack.onended = () => {
+        setTargetStreamLabel(null);
+        setDisplayStream(null);
+        setHasDisplayAudio(false);
+        displayStreamRef.current = null;
+        displayAnalyserRef.current = null;
+      };
+    } catch (err) {
+      console.warn("Screen/Window selection canceled or failed:", err);
+    }
+  }, [start]);
+
+  const stopDisplayMedia = useCallback(() => {
+    if (displayStreamRef.current) {
+      displayStreamRef.current.getTracks().forEach((t) => t.stop());
+      displayStreamRef.current = null;
+    }
+    setDisplayStream(null);
+    setHasDisplayAudio(false);
+    setTargetStreamLabel(null);
+    displayAnalyserRef.current = null;
+  }, []);
 
   const toggle = useCallback(() => {
     if (isRecording) {
