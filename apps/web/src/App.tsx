@@ -149,7 +149,7 @@ export function App() {
             </div>
             <div>
               <span style={{ fontSize: '18px', fontWeight: 800, letterSpacing: '-0.02em', color: 'var(--text-primary)' }}>
-                OmniScribe <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Edge</span>
+                LiveSpeak <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Edge</span>
               </span>
             </div>
           </div>
@@ -544,7 +544,7 @@ export function App() {
             SCREEN 2: Speed + Logo Strip
             - "Built on open foundations" tech logo row
             - Section: "Captions in under a second."
-            - Side-by-side cards: "Typing 45 wpm" vs "OmniScribe" with live waveform
+            - Side-by-side cards: "Typing 45 wpm" vs "LiveSpeak" with live waveform
             - Three stat chips
            ========================================================================= */}
 
@@ -641,10 +641,10 @@ export function App() {
             lineHeight: 1.6
           }}>
             Human typing caps out at 45 words per minute with spelling slips. 
-            OmniScribe streams speech at conversational speed with continuous sliding window token inference.
+            LiveSpeak streams speech at conversational speed with continuous sliding window token inference.
           </p>
 
-          {/* Side-by-Side Comparison Cards: "Typing 45 wpm" vs "OmniScribe" */}
+          {/* Side-by-Side Comparison Cards: "Typing 45 wpm" vs "LiveSpeak" */}
           <div style={{ 
             display: 'grid', 
             gridTemplateColumns: '1fr 1fr', 
@@ -727,7 +727,7 @@ export function App() {
               </div>
             </div>
 
-            {/* Right Card: "OmniScribe" with Waveform */}
+            {/* Right Card: "LiveSpeak" with Waveform */}
             <div className="rounded-card" style={{ 
               padding: '36px', 
               background: '#FFFFFF', 
@@ -748,7 +748,7 @@ export function App() {
                       boxShadow: '0 0 0 3px rgba(139, 92, 246, 0.25)' 
                     }} />
                     <span style={{ fontSize: '15px', fontWeight: 800, color: 'var(--text-primary)', letterSpacing: '0.02em' }}>
-                      OmniScribe
+                      LiveSpeak
                     </span>
                   </div>
                   <span style={{ 
@@ -1003,7 +1003,7 @@ export function App() {
                       background: '#10B981' 
                     }} />
                     <span style={{ fontSize: '12px', color: 'var(--text-muted)', marginLeft: '12px', fontWeight: 600 }}>
-                      OmniScribe Live Widget · {activeStep === 0 ? 'Audio Slicing' : activeStep === 1 ? 'Neural Remediation' : 'Universal Injection'}
+                      LiveSpeak Live Widget · {activeStep === 0 ? 'Audio Slicing' : activeStep === 1 ? 'Neural Remediation' : 'Universal Injection'}
                     </span>
                   </div>
 
@@ -1494,7 +1494,7 @@ export function App() {
             lineHeight: 1.6
           }}>
             Whether you're streaming to thousands via OBS or hosting a room full of people on local Wi-Fi, 
-            OmniScribe broadcasts synchronized live captions with zero cloud dependencies and zero driver installs.
+            LiveSpeak broadcasts synchronized live captions with zero cloud dependencies and zero driver installs.
           </p>
 
           {/* Three Pill Tabs: System audio | OBS overlay | QR audience mode */}
@@ -2416,7 +2416,7 @@ export function App() {
                     System Socket Monitor
                   </h3>
                   <p style={{ fontSize: '12px', color: 'var(--text-muted)' }}>
-                    Active process: <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-canvas)', padding: '2px 6px', borderRadius: '4px' }}>omniscribe-edge (PID 4821)</code>
+                    Active process: <code style={{ fontFamily: 'var(--font-mono)', background: 'var(--bg-canvas)', padding: '2px 6px', borderRadius: '4px' }}>LiveSpeak-edge (PID 4821)</code>
                   </p>
                 </div>
               </div>
@@ -2752,8 +2752,8 @@ export function App() {
             <div style={{ display: 'flex', flexDirection: 'column', gap: '16px' }}>
               {[
                 {
-                  q: "How does OmniScribe achieve sub-second live captioning without pauses?",
-                  a: "Unlike traditional speech engines that wait for a speaker to stop talking before processing (Voice Activity Detection slicing), OmniScribe uses an overlapping 3-second sliding window stepped forward every 500 milliseconds. This emits tentative [PARTIAL] tokens within 350ms and locks in finalized words as speech resolves."
+                  q: "How does LiveSpeak achieve sub-second live captioning without pauses?",
+                  a: "Unlike traditional speech engines that wait for a speaker to stop talking before processing (Voice Activity Detection slicing), LiveSpeak uses an overlapping 3-second sliding window stepped forward every 500 milliseconds. This emits tentative [PARTIAL] tokens within 350ms and locks in finalized words as speech resolves."
                 },
                 {
                   q: "Does any audio ever leave my computer?",
@@ -2765,7 +2765,7 @@ export function App() {
                 },
                 {
                   q: "How does the OBS and Audience QR mode work?",
-                  a: "OmniScribe includes a lightweight Tokio WebSocket server running on port 8080. Streamers point OBS to http://localhost:8080/broadcast for a transparent subtitle browser source. In-person attendees scan a QR code resolving the host's local IP to follow live synchronized captions on their phones without installing any software."
+                  a: "LiveSpeak includes a lightweight Tokio WebSocket server running on port 8080. Streamers point OBS to http://localhost:8080/broadcast for a transparent subtitle browser source. In-person attendees scan a QR code resolving the host's local IP to follow live synchronized captions on their phones without installing any software."
                 },
                 {
                   q: "What are the minimum hardware requirements?",
@@ -2833,7 +2833,7 @@ export function App() {
               </h2>
 
               <p style={{ fontSize: '19px', color: '#44403C', lineHeight: 1.6, marginBottom: '36px' }}>
-                Download OmniScribe Edge today and experience featherweight, zero-cloud desktop speech-to-text.
+                Download LiveSpeak Edge today and experience featherweight, zero-cloud desktop speech-to-text.
               </p>
 
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '16px' }}>
@@ -2884,7 +2884,7 @@ export function App() {
                 <Zap size={18} strokeWidth={2.5} />
               </div>
               <span style={{ fontSize: '18px', fontWeight: 800, color: 'var(--text-primary)' }}>
-                OmniScribe <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Edge</span>
+                LiveSpeak <span style={{ color: 'var(--text-muted)', fontWeight: 500 }}>Edge</span>
               </span>
             </div>
 
@@ -2897,7 +2897,7 @@ export function App() {
           </div>
 
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', fontSize: '13px', color: 'var(--text-muted)' }}>
-            <span>© 2026 OmniScribe Edge. 100% On-Device, Air-Gapped & Free.</span>
+            <span>© 2026 LiveSpeak Edge. 100% On-Device, Air-Gapped & Free.</span>
             <span>Sub-200MB Distribution · Zero Cloud Reliance</span>
           </div>
 
@@ -2916,7 +2916,7 @@ export function App() {
               display: 'block', 
               lineHeight: 0.8 
             }}>
-              OMNISCRIBE
+              LiveSpeak
             </span>
           </div>
         </footer>
@@ -2926,6 +2926,7 @@ export function App() {
 }
 
 export default App;
+
 
 
 

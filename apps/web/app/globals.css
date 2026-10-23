@@ -3,7 +3,7 @@
 @tailwind utilities;
 
 /* ==========================================================================
-   OmniScribe Edge Design System
+   LiveSpeak Design System
    Palette: Warm off-white (#FAF8F4), Pure White (#FFFFFF), 
    Pastel Blobs (Peach, Lilac, Mint), Deep Slate ink (#18181B)
    ========================================================================== */
@@ -285,3 +285,4 @@ html, body {
     padding: 14px 20px !important;
   }
 }
+
