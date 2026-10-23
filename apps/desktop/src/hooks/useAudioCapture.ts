@@ -85,10 +85,37 @@ export function useAudioCapture(
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  // High-performance digital screen audio chunker with VAD phrase segmentation & multilingual support
-  const startScreenAudioChunker = useCallback((stream: MediaStream) => {
+  // High-performance digital screen audio chunker with multilingual Whisper support
+  const startScreenAudioChunker = useCallback(async (stream: MediaStream) => {
     try {
-      if (stream.getAudioTracks().length === 0) return;
+      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
+      if (!audioContextRef.current) {
+        audioContextRef.current = new AudioCtx();
+      }
+      const audioCtx = audioContextRef.current;
+      if (audioCtx.state === "suspended") {
+        await audioCtx.resume();
+      }
+
+      // Determine audio source: screen digital audio track if available, else fallback to mic input
+      let audioStream = stream;
+      if (stream.getAudioTracks().length === 0) {
+        if (!micStreamRef.current) {
+          try {
+            micStreamRef.current = await navigator.mediaDevices.getUserMedia({
+              audio: {
+                echoCancellation: false,
+                noiseSuppression: false,
+                autoGainControl: true,
+              },
+            });
+          } catch (e) {
+            console.warn("Could not get fallback audio input:", e);
+            return;
+          }
+        }
+        audioStream = micStreamRef.current;
+      }
 
       if (screenProcessorRef.current) {
         screenProcessorRef.current.disconnect();
@@ -99,13 +126,7 @@ export function useAudioCapture(
         screenSourceNodeRef.current = null;
       }
 
-      const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
-      if (!audioContextRef.current) {
-        audioContextRef.current = new AudioCtx();
-      }
-      const audioCtx = audioContextRef.current;
-
-      const sourceNode = audioCtx.createMediaStreamSource(stream);
+      const sourceNode = audioCtx.createMediaStreamSource(audioStream);
       screenSourceNodeRef.current = sourceNode;
 
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
@@ -113,13 +134,10 @@ export function useAudioCapture(
 
       let chunkBuffers: Float32Array[] = [];
       let totalSamples = 0;
-      let consecutiveSilenceFrames = 0;
-      let consecutiveSpeechFrames = 0;
       const targetSampleRate = 16000;
       const ctxSampleRate = audioCtx.sampleRate;
-      const minSpeechSamples = Math.round(targetSampleRate * 1.4); // 1.4s minimum coherent phrase
-      const maxSpeechSamples = Math.round(targetSampleRate * 3.4); // 3.4s maximum sentence buffer
-      const overlapSamples = Math.round(targetSampleRate * 0.15); // 150ms boundary overlap
+      const samplesNeeded = Math.round(targetSampleRate * 1.5); // 1.5s sliding window
+      const overlapSamples = Math.round(targetSampleRate * 0.25); // 250ms boundary overlap
 
       processor.onaudioprocess = (e) => {
         if (!isRecordingRef.current) return;
@@ -127,35 +145,12 @@ export function useAudioCapture(
         const inputData = e.inputBuffer.getChannelData(0);
         const resampled = downsampleTo16k(inputData, ctxSampleRate);
 
-        // Fast RMS energy calculation
-        let sumSq = 0;
-        for (let i = 0; i < resampled.length; i++) {
-          sumSq += resampled[i] * resampled[i];
-        }
-        const rms = Math.sqrt(sumSq / resampled.length);
-        const isSpeech = rms > 0.012;
+        const copy = new Float32Array(resampled.length);
+        copy.set(resampled);
+        chunkBuffers.push(copy);
+        totalSamples += copy.length;
 
-        if (isSpeech) {
-          consecutiveSpeechFrames++;
-          consecutiveSilenceFrames = 0;
-        } else {
-          consecutiveSpeechFrames = 0;
-          consecutiveSilenceFrames++;
-        }
-
-        // Accumulate audio when speech is detected or during natural trailing decay
-        if (isSpeech || totalSamples > 0) {
-          const copy = new Float32Array(resampled.length);
-          copy.set(resampled);
-          chunkBuffers.push(copy);
-          totalSamples += copy.length;
-        }
-
-        // Natural pause boundary (350ms pause after speech) OR reached max sentence length (3.4s)
-        const isNaturalPause = consecutiveSilenceFrames >= 4 && totalSamples >= minSpeechSamples;
-        const isMaxDuration = totalSamples >= maxSpeechSamples;
-
-        if (isNaturalPause || isMaxDuration) {
+        if (totalSamples >= samplesNeeded) {
           const merged = new Float32Array(totalSamples);
           let offset = 0;
           for (const b of chunkBuffers) {
@@ -163,20 +158,18 @@ export function useAudioCapture(
             offset += b.length;
           }
 
-          // Retain trailing 150ms for acoustic continuity across phrases
+          // Retain trailing 250ms for boundary continuity
           const remainingOverlap = merged.slice(Math.max(0, totalSamples - overlapSamples));
           chunkBuffers = [remainingOverlap];
           totalSamples = remainingOverlap.length;
-          consecutiveSilenceFrames = 0;
-          consecutiveSpeechFrames = 0;
 
-          // Reject silence: only send if amplitude is meaningful
+          // Reject silence: skip if practically silent (peak < 0.002)
           let maxAmp = 0;
           for (let i = 0; i < merged.length; i++) {
             const abs = Math.abs(merged[i]);
             if (abs > maxAmp) maxAmp = abs;
           }
-          if (maxAmp < 0.014) return;
+          if (maxAmp < 0.002) return;
 
           const currentLang = languageRef.current;
           const langParam = currentLang === "translate" ? "auto" : currentLang;
@@ -202,19 +195,21 @@ export function useAudioCapture(
 
               lastTranscribedTextRef.current = text;
 
+              const sourceLabel = audioSourceRef.current === "mic" ? "mic" : "window";
+
               setSentences((prevList) => [
                 ...prevList,
                 {
                   id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   text: text,
-                  source: "window",
+                  source: sourceLabel,
                   timestamp: Date.now(),
                 },
               ]);
-              setActivePartial({ text: text, source: "window" });
+              setActivePartial({ text: text, source: sourceLabel });
               setTimeout(() => {
                 setActivePartial((cur) => (cur?.text === text ? null : cur));
-              }, 3000);
+              }, 3500);
             })
             .catch(() => {});
         }
@@ -439,29 +434,38 @@ export function useAudioCapture(
     setIsRecording(true);
     isRecordingRef.current = true;
 
-    const isScreenMode = audioSource !== "mic" || displayStreamRef.current !== null;
-
-    if (isScreenMode) {
-      // Single digital screen audio pipeline: zero duplicate captures
-      if (displayStreamRef.current) {
-        startScreenAudioChunker(displayStreamRef.current);
-      }
-
-      // Ensure physical microphone is completely disabled
-      if (recognitionRef.current) {
-        try {
-          recognitionRef.current.abort();
-        } catch {}
-        recognitionRef.current = null;
-      }
-    } else {
-      // Personal microphone dictation mode
-      startWebSpeechRecognition();
-    }
-
-    // Audio level visualizer monitoring
+    // Start audio monitoring for volume levels
     await startAudioMonitoring();
-  }, [audioSource, startAudioMonitoring, startWebSpeechRecognition, startScreenAudioChunker]);
+
+    const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
+
+    if (isScreenMode && displayStreamRef.current) {
+      // Direct digital screen/window audio
+      await startScreenAudioChunker(displayStreamRef.current);
+    } else {
+      // Ensure microphone stream is active for mic or fallback capture
+      if (!micStreamRef.current && navigator.mediaDevices?.getUserMedia) {
+        try {
+          const mic = await navigator.mediaDevices.getUserMedia({
+            audio: {
+              echoCancellation: true,
+              noiseSuppression: true,
+              autoGainControl: true,
+            },
+          });
+          micStreamRef.current = mic;
+        } catch (e) {
+          console.warn("Microphone access failed:", e);
+        }
+      }
+
+      if (micStreamRef.current) {
+        await startScreenAudioChunker(micStreamRef.current);
+      } else {
+        startWebSpeechRecognition();
+      }
+    }
+  }, [startAudioMonitoring, startWebSpeechRecognition, startScreenAudioChunker]);
 
   const stop = useCallback(async () => {
     setIsRecording(false);

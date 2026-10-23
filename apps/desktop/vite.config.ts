@@ -83,16 +83,20 @@ export default defineConfig({
           const incomingUrl = new URL(req.url || "", `http://${req.headers.host || "localhost"}`);
           const targetPath = `/transcribe${incomingUrl.search || ""}`;
 
+          const proxyHeaders: Record<string, string> = {
+            "Content-Type": "application/octet-stream",
+          };
+          if (req.headers["content-length"]) {
+            proxyHeaders["Content-Length"] = String(req.headers["content-length"]);
+          }
+
           const proxyReq = http.request(
             {
               hostname: "127.0.0.1",
               port: 5174,
               path: targetPath,
               method: "POST",
-              headers: {
-                "Content-Type": "application/octet-stream",
-                "Content-Length": req.headers["content-length"] || "",
-              },
+              headers: proxyHeaders,
             },
             (proxyRes) => {
               res.writeHead(proxyRes.statusCode || 200, proxyRes.headers);

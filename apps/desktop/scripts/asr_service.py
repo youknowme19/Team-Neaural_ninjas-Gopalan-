@@ -36,16 +36,18 @@ HALLUCINATION_EXACT = {
 }
 
 def deduplicate_repetitions(text: str) -> str:
-    # 1. Deduplicate single repeated words (Latin and Devanagari)
-    cleaned = re.sub(r'\b(\w+)[,\.]?(?:\s+\1[,\.]?)+\b', r'\1', text, flags=re.IGNORECASE | re.UNICODE)
-    # 2. Devanagari specific single-word repetition
-    cleaned = re.sub(r'(?:^|\s)([\u0900-\u097f]+[,\.]?)(?:\s+\1[,\.]?)+(?=\s|$)', r' \1', cleaned)
-    # 3. Deduplicate 2-word phrase repetitions
-    cleaned = re.sub(r'(\b\w+\s+\w+[\.,?!]?)(?:\s+\1)+', r'\1', cleaned, flags=re.IGNORECASE | re.UNICODE)
-    # 4. Deduplicate 3-word phrase repetitions
-    cleaned = re.sub(r'(\b\w+\s+\w+\s+\w+[\.,?!]?)(?:\s+\1)+', r'\1', cleaned, flags=re.IGNORECASE | re.UNICODE)
-    # 5. Collapse excessive dots
-    cleaned = re.sub(r'\.{3,}', '...', cleaned)
+    if not text:
+        return ""
+    # Collapse repeated dots
+    cleaned = re.sub(r'\.{2,}', '.', text)
+    # Deduplicate single repeated Latin words: "bhai bhai bhai" -> "bhai", "aur aur aur" -> "aur"
+    cleaned = re.sub(r'\b([A-Za-z]+)(?:[,\s]+\1\b)+', r'\1', cleaned, flags=re.IGNORECASE)
+    # Deduplicate single repeated Devanagari words:
+    cleaned = re.sub(r'([\u0900-\u097f]+)(?:[,\s]+\1)+', r'\1', cleaned)
+    # Deduplicate 2-word phrase repetitions
+    cleaned = re.sub(r'(\b\w+\s+\w+)(?:[,\s]+\1)+', r'\1', cleaned, flags=re.IGNORECASE)
+    # Truncate runaway character repeats (e.g. "aaaaa" -> "aa")
+    cleaned = re.sub(r'(.)\1{3,}', r'\1\1', cleaned)
     return cleaned.strip()
 
 def is_clean_transcript(text: str) -> bool:
@@ -61,15 +63,11 @@ def is_clean_transcript(text: str) -> bool:
     if re.search(r'[\uac00-\ud7af\u1100-\u11ff\u3040-\u30ff\u4e00-\u9fff]', cleaned):
         return False
 
-    # Excessive character repetitions
-    if re.search(r'(.)\1{4,}', cleaned):
-        return False
-
     # Zlib compression ratio test for autoregressive repetition loops
     raw = cleaned.encode("utf-8")
-    if len(raw) > 28:
-        ratio = len(raw) / len(zlib.compress(raw))
-        if ratio > 2.2:
+    if len(raw) > 32:
+        comp = zlib.compress(raw)
+        if len(comp) > 0 and (len(raw) / len(comp)) > 2.6:
             return False
 
     return True
@@ -95,8 +93,8 @@ class FastASRHandler(BaseHTTPRequestHandler):
 
             body = self.rfile.read(content_length)
 
-            # Ignore tiny fragments (< 0.25s of audio)
-            if len(body) < 16000 * 0.25 * 4:
+            # Minimum 0.15s of audio (16000 * 0.15 * 4 = 9600 bytes)
+            if len(body) < 9600:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -105,9 +103,9 @@ class FastASRHandler(BaseHTTPRequestHandler):
 
             audio_data = np.frombuffer(body, dtype=np.float32)
 
-            # Fast energy check: skip silence in 0.01ms without GPU overhead
+            # Skip truly silent audio at 0ms cost
             max_amp = float(np.max(np.abs(audio_data)))
-            if max_amp < 0.012:
+            if max_amp < 0.002:
                 self.send_response(200)
                 self.send_header("Content-Type", "application/json")
                 self.end_headers()
@@ -117,8 +115,6 @@ class FastASRHandler(BaseHTTPRequestHandler):
             try:
                 generate_kwargs = {
                     "task": task,
-                    "no_repeat_ngram_size": 3,
-                    "repetition_penalty": 1.3,
                     "condition_on_previous_text": False,
                 }
                 if lang and lang != "auto":
@@ -135,6 +131,10 @@ class FastASRHandler(BaseHTTPRequestHandler):
 
                 if not is_clean_transcript(cleaned_text):
                     cleaned_text = ""
+
+                if cleaned_text:
+                    print(f"[ASR] Recognized: {cleaned_text}")
+                    sys.stdout.flush()
 
                 resp = json.dumps({"text": cleaned_text}).encode("utf-8")
                 self.send_response(200)
