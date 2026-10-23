@@ -1,10 +1,24 @@
+use crate::engine::grammar::{
+    execute_grammar_correction, warm_up_provider, CleanTranscriptRequest,
+    CleanTranscriptResponse,
+};
+
 #[tauri::command]
-pub async fn clean_transcript(raw_text: String) -> Result<String, String> {
-    // Grammar cleanup routine: handles filler word & disfluency removal
-    let mut cleaned = raw_text;
-    let fillers = ["um", "uh", "like,", "you know,"];
-    for filler in fillers {
-        cleaned = cleaned.replace(filler, "");
-    }
-    Ok(cleaned.trim().to_string())
+pub async fn clean_transcript(
+    request: CleanTranscriptRequest,
+) -> Result<CleanTranscriptResponse, String> {
+    execute_grammar_correction(request)
+        .await
+        .map_err(|e| e.to_string())
+}
+
+/// Pre-loads the local model / pre-connects to Groq so the first Clean Up is fast.
+#[tauri::command]
+pub async fn warm_grammar_provider(
+    provider: String,
+    groq_api_key: Option<String>,
+) -> Result<(), String> {
+    warm_up_provider(&provider, groq_api_key)
+        .await
+        .map_err(|e| e.to_string())
 }
