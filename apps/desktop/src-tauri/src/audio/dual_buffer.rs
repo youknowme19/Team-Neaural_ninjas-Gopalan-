@@ -1,50 +1,89 @@
 use std::sync::Mutex;
 
+struct RingBufferInner {
+    data: Vec<f32>,
+    write_pos: usize,
+    total_written: usize,
+}
+
 pub struct CircularRingBuffer {
-    buffer: Mutex<Vec<f32>>,
+    inner: Mutex<RingBufferInner>,
     capacity: usize,
-    write_pos: Mutex<usize>,
 }
 
 impl CircularRingBuffer {
     pub fn new(capacity: usize) -> Self {
         Self {
-            buffer: Mutex::new(vec![0.0; capacity]),
+            inner: Mutex::new(RingBufferInner {
+                data: vec![0.0; capacity],
+                write_pos: 0,
+                total_written: 0,
+            }),
             capacity,
-            write_pos: Mutex::new(0),
         }
     }
 
     pub fn write_samples(&self, samples: &[f32]) {
-        let mut buffer = self.buffer.lock().unwrap();
-        let mut pos = self.write_pos.lock().unwrap();
-
-        for &sample in samples {
-            buffer[*pos] = sample;
-            *pos = (*pos + 1) % self.capacity;
+        if samples.is_empty() {
+            return;
         }
+
+        let mut inner = self.inner.lock().unwrap();
+        let capacity = self.capacity;
+
+        let samples = if samples.len() > capacity {
+            &samples[samples.len() - capacity..]
+        } else {
+            samples
+        };
+
+        let num_samples = samples.len();
+        let write_pos = inner.write_pos;
+        let space_to_end = capacity - write_pos;
+
+        if num_samples <= space_to_end {
+            inner.data[write_pos..write_pos + num_samples].copy_from_slice(samples);
+            inner.write_pos = (write_pos + num_samples) % capacity;
+        } else {
+            inner.data[write_pos..capacity].copy_from_slice(&samples[..space_to_end]);
+            let remaining = num_samples - space_to_end;
+            inner.data[..remaining].copy_from_slice(&samples[space_to_end..]);
+            inner.write_pos = remaining;
+        }
+
+        inner.total_written += num_samples;
     }
 
     pub fn get_recent_samples(&self, num_samples: usize) -> Vec<f32> {
-        let buffer = self.buffer.lock().unwrap();
-        let pos = *self.write_pos.lock().unwrap();
-        let count = num_samples.min(self.capacity);
+        let inner = self.inner.lock().unwrap();
+        let count = num_samples.min(self.capacity).min(inner.total_written);
+
+        if count == 0 {
+            return Vec::new();
+        }
 
         let mut result = Vec::with_capacity(count);
-        let start = (pos + self.capacity - count) % self.capacity;
+        let write_pos = inner.write_pos;
+        let capacity = self.capacity;
 
-        for i in 0..count {
-            let idx = (start + i) % self.capacity;
-            result.push(buffer[idx]);
+        let start_pos = (write_pos + capacity - count) % capacity;
+
+        if start_pos + count <= capacity {
+            result.extend_from_slice(&inner.data[start_pos..start_pos + count]);
+        } else {
+            let first_part = capacity - start_pos;
+            result.extend_from_slice(&inner.data[start_pos..capacity]);
+            let second_part = count - first_part;
+            result.extend_from_slice(&inner.data[..second_part]);
         }
 
         result
     }
 
     pub fn clear(&self) {
-        let mut buffer = self.buffer.lock().unwrap();
-        let mut pos = self.write_pos.lock().unwrap();
-        buffer.fill(0.0);
-        *pos = 0;
+        let mut inner = self.inner.lock().unwrap();
+        inner.data.fill(0.0);
+        inner.write_pos = 0;
+        inner.total_written = 0;
     }
 }

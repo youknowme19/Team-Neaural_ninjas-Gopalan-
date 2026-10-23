@@ -55,6 +55,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
 
   const screenProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const screenSourceNodeRef = useRef<MediaStreamAudioSourceNode | null>(null);
+  const lastTranscribedTextRef = useRef<string>("");
 
   const audioSourceRef = useRef(audioSource);
   useEffect(() => {
@@ -70,7 +71,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     isRecordingRef.current = isRecording;
   }, [isRecording]);
 
-  // Pure digital screen audio chunker: captures raw PCM samples directly from screen track
+  // High-performance digital screen audio chunker: 1.0s sliding window with overlap and deduplication
   const startScreenAudioChunker = useCallback((stream: MediaStream) => {
     try {
       if (stream.getAudioTracks().length === 0) return;
@@ -93,7 +94,6 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       const sourceNode = audioCtx.createMediaStreamSource(stream);
       screenSourceNodeRef.current = sourceNode;
 
-      // 4096 sample buffer processor
       const processor = audioCtx.createScriptProcessor(4096, 1, 1);
       screenProcessorRef.current = processor;
 
@@ -101,7 +101,8 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       let totalSamples = 0;
       const targetSampleRate = 16000;
       const ctxSampleRate = audioCtx.sampleRate;
-      const samplesNeeded = targetSampleRate * 2; // 2.0 second chunks
+      const samplesNeeded = Math.round(targetSampleRate * 1.0); // 1.0 second low-latency window
+      const overlapSamples = Math.round(targetSampleRate * 0.2); // 0.2s boundary overlap
 
       processor.onaudioprocess = (e) => {
         if (!isRecordingRef.current) return;
@@ -120,16 +121,19 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
             merged.set(b, offset);
             offset += b.length;
           }
-          chunkBuffers = [];
-          totalSamples = 0;
 
-          // Reject silence: only send if amplitude is meaningful
+          // Retain trailing overlap samples to prevent boundary speech truncation
+          const remainingOverlap = merged.slice(Math.max(0, totalSamples - overlapSamples));
+          chunkBuffers = [remainingOverlap];
+          totalSamples = remainingOverlap.length;
+
+          // Energy check: reject silence at zero network cost
           let maxAmp = 0;
           for (let i = 0; i < merged.length; i++) {
             const abs = Math.abs(merged[i]);
             if (abs > maxAmp) maxAmp = abs;
           }
-          if (maxAmp < 0.015) return;
+          if (maxAmp < 0.012) return;
 
           fetch("/api/screencapture/transcribe-chunk", {
             method: "POST",
@@ -139,10 +143,19 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
             .then((r) => r.json())
             .then((data) => {
               const text = data.text?.trim() || "";
-              if (!text) return;
+              if (!text || text.length < 2) return;
 
-              setSentences((prev) => [
-                ...prev,
+              // Deduplicate identical sequential phrases from sliding overlap
+              const prev = lastTranscribedTextRef.current.toLowerCase();
+              const curr = text.toLowerCase();
+              if (prev === curr || (prev.length > 5 && curr.includes(prev))) {
+                return;
+              }
+
+              lastTranscribedTextRef.current = text;
+
+              setSentences((prevList) => [
+                ...prevList,
                 {
                   id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                   text: text,
@@ -153,7 +166,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
               setActivePartial({ text: text, source: "window" });
               setTimeout(() => {
                 setActivePartial((cur) => (cur?.text === text ? null : cur));
-              }, 2500);
+              }, 2000);
             })
             .catch(() => {});
         }

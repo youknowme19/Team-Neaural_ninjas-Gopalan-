@@ -1,5 +1,5 @@
 pub struct VadEngine {
-    energy_threshold: f32,
+    energy_threshold_sq: f32,
     hangover_frames: usize,
     active_hangover: usize,
     consecutive_speech_frames: usize,
@@ -9,7 +9,7 @@ pub struct VadEngine {
 impl VadEngine {
     pub fn new(energy_threshold: f32) -> Self {
         Self {
-            energy_threshold,
+            energy_threshold_sq: energy_threshold * energy_threshold,
             hangover_frames: 12, // approx 400ms at 32ms/frame
             active_hangover: 0,
             consecutive_speech_frames: 0,
@@ -17,12 +17,16 @@ impl VadEngine {
         }
     }
 
+    #[inline]
     pub fn process_frame(&mut self, frame: &[f32]) -> (bool, bool) {
-        // Compute Root Mean Square (RMS) energy
-        let sum_sq: f32 = frame.iter().map(|&s| s * s).sum();
-        let rms = (sum_sq / frame.len() as f32).sqrt();
+        if frame.is_empty() {
+            return (self.is_speech_active, false);
+        }
 
-        let raw_speech = rms > self.energy_threshold;
+        // Fast squared energy sum avoiding expensive sqrt floating point operation
+        let sum_sq: f32 = frame.iter().map(|&s| s * s).sum();
+        let mean_sq = sum_sq / (frame.len() as f32);
+        let raw_speech = mean_sq > self.energy_threshold_sq;
 
         if raw_speech {
             self.consecutive_speech_frames += 1;

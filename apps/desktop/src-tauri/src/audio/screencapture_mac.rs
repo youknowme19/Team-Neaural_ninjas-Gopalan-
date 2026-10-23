@@ -12,7 +12,6 @@ pub fn start_screencapture_audio(
     target_pid: Option<i32>,
     is_running: Arc<AtomicBool>,
 ) -> Result<thread::JoinHandle<()>, String> {
-    // Locate the screencapture-bridge executable
     let binary_path = std::env::current_exe()
         .ok()
         .and_then(|p| p.parent().map(|d| d.join("screencapture-bridge")))
@@ -39,22 +38,22 @@ pub fn start_screencapture_audio(
 
     let handle = thread::spawn(move || {
         let mut byte_buffer = [0u8; 1024];
+        let mut sample_buffer = [0.0f32; 512];
 
-        while is_running.load(Ordering::SeqCst) {
+        while is_running.load(Ordering::Relaxed) {
             match stdout.read(&mut byte_buffer) {
                 Ok(0) => break,
                 Ok(bytes_read) => {
-                    // Raw PCM bytes from ScreenCaptureKit (assuming 16-bit linear PCM little-endian)
                     let num_samples = bytes_read / 2;
-                    let mut samples = Vec::with_capacity(num_samples);
+                    let mut sample_idx = 0;
 
                     for chunk in byte_buffer[..bytes_read].chunks_exact(2) {
                         let sample_i16 = i16::from_le_bytes([chunk[0], chunk[1]]);
-                        let sample_f32 = sample_i16 as f32 / 32768.0;
-                        samples.push(sample_f32);
+                        sample_buffer[sample_idx] = sample_i16 as f32 / 32768.0;
+                        sample_idx += 1;
                     }
 
-                    ring_buffer.write_samples(&samples);
+                    ring_buffer.write_samples(&sample_buffer[..num_samples]);
                 }
                 Err(e) => {
                     eprintln!("Error reading screencapture stdout: {}", e);
