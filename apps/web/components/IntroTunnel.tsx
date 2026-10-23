@@ -16,12 +16,10 @@
  */
 
 import {
-  animate,
   motion,
   useMotionValue,
   useSpring,
   useTransform,
-  type AnimationPlaybackControls,
   type MotionValue,
 } from "framer-motion";
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -208,9 +206,6 @@ export default function IntroTunnel() {
   const rawY = useMotionValue(0);
   const pointer = { x: useSpring(rawX, SPRING_CONFIG), y: useSpring(rawY, SPRING_CONFIG) };
 
-  const autoRef = useRef<AnimationPlaybackControls | null>(null);
-  const idleRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
   const emit = (detail: "play" | "done") =>
     window.dispatchEvent(new CustomEvent("livespeak:intro", { detail }));
 
@@ -256,18 +251,11 @@ export default function IntroTunnel() {
     return () => window.removeEventListener("resize", update);
   }, []);
 
-  // 4. Input: wheel, touch, keys, pointer parallax, auto-play
+  // 4. Input: wheel, touch, keys, pointer parallax (purely driven by user scroll)
   useEffect(() => {
     if (phase !== "playing") return;
 
-    const stopAuto = () => {
-      autoRef.current?.stop();
-      autoRef.current = null;
-      if (idleRef.current) clearTimeout(idleRef.current);
-      idleRef.current = null;
-    };
     const bump = (d: number) => {
-      stopAuto();
       rawProgress.set(Math.min(1, Math.max(0, rawProgress.get() + d)));
     };
 
@@ -285,7 +273,7 @@ export default function IntroTunnel() {
       lastY = y;
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") { stopAuto(); rawProgress.set(1); return; }
+      if (e.key === "Escape") { rawProgress.set(1); return; }
       if (["ArrowDown", "PageDown", " "].includes(e.key)) { e.preventDefault(); bump(0.08); }
       if (["ArrowUp", "PageUp"].includes(e.key)) { e.preventDefault(); bump(-0.08); }
     };
@@ -300,13 +288,7 @@ export default function IntroTunnel() {
     window.addEventListener("keydown", onKey);
     window.addEventListener("pointermove", onMove, { passive: true });
 
-    // auto-play if the visitor does nothing
-    idleRef.current = setTimeout(() => {
-      autoRef.current = animate(rawProgress, 1, { duration: 8, ease: "easeInOut" });
-    }, 2500);
-
     return () => {
-      stopAuto();
       window.removeEventListener("wheel", onWheel, { capture: true });
       window.removeEventListener("touchstart", onTouchStart);
       window.removeEventListener("touchmove", onTouchMove);
@@ -343,12 +325,13 @@ export default function IntroTunnel() {
         style={{ scale: titleScale, opacity: titleOpacity }}
         className="pointer-events-none z-0 flex max-w-xl flex-col items-center px-6 text-center"
       >
-        <LiveSpeakMark size={44} />
-        <h1 className="mt-6 text-5xl font-bold leading-[0.95] tracking-[-0.04em] sm:text-7xl md:text-8xl">
-          Don&rsquo;t wait,
-          <br />
-          just watch it appear.
+        <LiveSpeakMark size={48} />
+        <h1 className="mt-6 text-6xl font-bold leading-[0.95] tracking-[-0.04em] sm:text-7xl md:text-8xl text-neutral-900">
+          LiveSpeak
         </h1>
+        <p className="mt-4 text-base sm:text-xl text-neutral-500 font-medium">
+          Don&rsquo;t wait, just watch it appear.
+        </p>
       </motion.div>
 
       {/* 3D card plane */}
