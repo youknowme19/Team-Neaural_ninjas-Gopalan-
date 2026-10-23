@@ -14,6 +14,7 @@ pub struct UltraLowLatencyEngine {
     binary_path: PathBuf,
     server_path: PathBuf,
     model_path: PathBuf,
+    #[allow(dead_code)]
     vad_model_path: PathBuf,
     optimal_threads: usize,
 }
@@ -112,6 +113,16 @@ impl UltraLowLatencyEngine {
                 &mut body,
                 "--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n",
                 boundary, name, val
+            )
+            .map_err(|e| e.to_string())?;
+        }
+
+        let trimmed_prompt = rolling_context.trim();
+        if !trimmed_prompt.is_empty() {
+            write!(
+                &mut body,
+                "--{}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{}\r\n",
+                boundary, trimmed_prompt
             )
             .map_err(|e| e.to_string())?;
         }
