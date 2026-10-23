@@ -22,9 +22,9 @@ pub fn create_caption_overlay(app_handle: &AppHandle) -> Result<WebviewWindow, S
         OVERLAY_LABEL,
         WebviewUrl::App("index.html?view=overlay".into()),
     )
-    .title("LiveSpeak Overlay")
-    .inner_size(820.0, 140.0)
-    .resizable(true)
+    .title("LiveSpeak Spotlight")
+    .inner_size(720.0, 240.0)
+    .resizable(false)
     .decorations(false)
     .transparent(true)
     .always_on_top(true)
@@ -33,15 +33,14 @@ pub fn create_caption_overlay(app_handle: &AppHandle) -> Result<WebviewWindow, S
     .build()
     .map_err(|e| e.to_string())?;
 
-    // Position at bottom center of primary screen
+    // Position top-center of primary screen like macOS Spotlight
     if let Ok(Some(monitor)) = window.primary_monitor() {
         let screen_size = monitor.size();
         let scale_factor = monitor.scale_factor();
         let logical_width = screen_size.width as f64 / scale_factor;
-        let logical_height = screen_size.height as f64 / scale_factor;
 
-        let x = (logical_width - 820.0) / 2.0;
-        let y = logical_height - 180.0;
+        let x = (logical_width - 720.0) / 2.0;
+        let y = 100.0; // Top-centered like Spotlight
         let _ = window.set_position(tauri::Position::Logical(tauri::LogicalPosition::new(x, y)));
     }
 
