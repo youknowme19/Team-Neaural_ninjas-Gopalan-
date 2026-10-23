@@ -282,6 +282,19 @@ struct ScreenCaptureBridge {
     }
 
     static func startAudioTranscription(targetPid: Int?) async {
+        guard Bundle.main.bundleIdentifier != nil else {
+            fputs("ScreenCaptureBridge: Speech.framework requires an application bundle. Using ScreenCaptureKit audio stream.\n", stderr)
+            await startAudioCapture(targetPid: targetPid)
+            return
+        }
+
+        await withCheckedContinuation { continuation in
+            SFSpeechRecognizer.requestAuthorization { status in
+                fputs("ScreenCaptureBridge Speech Auth Status: \(status.rawValue)\n", stderr)
+                continuation.resume()
+            }
+        }
+
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
             guard let display = content.displays.first else {

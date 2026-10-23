@@ -25,6 +25,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const displayAnalyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const displayStreamRef = useRef<MediaStream | null>(null);
+  const displayAvgRef = useRef<number>(0);
   const animationFrameRef = useRef<number | null>(null);
   const isRecordingRef = useRef(false);
   const restartTimerRef = useRef<any>(null);
@@ -89,7 +90,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       };
 
       eventSource.onerror = () => {
-        // Fallback or retry
+        if (sseSourceRef.current) {
+          sseSourceRef.current.close();
+          sseSourceRef.current = null;
+        }
       };
     } catch (e) {
       console.warn("ScreenCaptureKit SSE connection failed:", e);
@@ -103,10 +107,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     }
   }, []);
 
-  // Web Speech Recognition for personal microphone dictation only
+  // Web Speech Recognition for live speech transcription (personal mic and screen audio)
   const startWebSpeechRecognition = useCallback(() => {
     const SpeechClass = window.SpeechRecognition || window.webkitSpeechRecognition;
-    if (!SpeechClass) return;
+    if (!SpeechClass) {
+      console.warn("SpeechRecognition not supported in this browser");
+      return;
+    }
 
     try {
       if (recognitionRef.current) {
@@ -121,8 +128,16 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognition.lang = "en-US";
 
       recognition.onresult = (event: any) => {
-        // When in ScreenCaptureKit mode, ignore mic recognition
-        if (audioSourceRef.current !== "mic") return;
+        const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
+        const hasScreenAudio = Boolean(displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0);
+
+        // Screen audio gating: If a screen/tab audio track is actively connected,
+        // ignore ambient microphone room chatter when the screen video is silent.
+        if (isScreenMode && hasScreenAudio && displayAvgRef.current < 1.0) {
+          return;
+        }
+
+        const sourceTag: "mic" | "window" = isScreenMode ? "window" : "mic";
 
         let interimText = "";
         for (let i = event.resultIndex; i < event.results.length; ++i) {
@@ -136,7 +151,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
               {
                 id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
                 text: text,
-                source: "mic",
+                source: sourceTag,
                 timestamp: Date.now(),
               },
             ]);
@@ -149,32 +164,33 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         if (interimText) {
           setActivePartial({
             text: interimText,
-            source: "mic",
+            source: sourceTag,
           });
         }
       };
 
-      recognition.onerror = () => {
-        if (isRecordingRef.current && audioSourceRef.current === "mic") {
+      recognition.onerror = (e: any) => {
+        console.warn("SpeechRecognition error:", e);
+        if (isRecordingRef.current) {
           setTimeout(() => {
             if (isRecordingRef.current && recognitionRef.current) {
               try {
                 recognitionRef.current.start();
               } catch {}
             }
-          }, 200);
+          }, 250);
         }
       };
 
       recognition.onend = () => {
-        if (isRecordingRef.current && audioSourceRef.current === "mic") {
+        if (isRecordingRef.current) {
           setTimeout(() => {
             if (isRecordingRef.current && recognitionRef.current) {
               try {
                 recognitionRef.current.start();
               } catch {}
             }
-          }, 100);
+          }, 150);
         }
       };
 
@@ -197,15 +213,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         await audioCtx.resume();
       }
 
-      const isScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
-
-      // Only open microphone if explicitly in personal mic mode
-      if (!isScreenMode && navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
+      // Initialize microphone stream for speech recognition
+      if (navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
+              echoCancellation: false,
+              noiseSuppression: false,
               autoGainControl: true,
             },
           });
@@ -221,7 +235,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect screen stream to analyser for live volume visualizer
+      // Connect screen stream to analyser for live volume visualizer and gating
       if (displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0) {
         try {
           const displaySource = audioCtx.createMediaStreamSource(displayStreamRef.current);
@@ -239,7 +253,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         let displayAvg = 0;
         const currentIsScreenMode = audioSourceRef.current !== "mic" || displayStreamRef.current !== null;
 
-        if (micAnalyserRef.current && !currentIsScreenMode) {
+        if (micAnalyserRef.current) {
           const micBuf = new Uint8Array(micAnalyserRef.current.frequencyBinCount);
           micAnalyserRef.current.getByteFrequencyData(micBuf);
           let sum = 0;
@@ -255,8 +269,10 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           displayAvg = sum / displayBuf.length;
         }
 
-        // When in screen share or target lock, audio level is 100% strictly screen audio
-        const activeAvg = currentIsScreenMode ? displayAvg : micAvg;
+        displayAvgRef.current = displayAvg;
+
+        // When in screen share or target lock, audio level visualizer reflects screen audio if available
+        const activeAvg = currentIsScreenMode && displayAnalyserRef.current ? displayAvg : micAvg;
         const normalized = Math.min(1, activeAvg / 128);
         setAudioLevel(normalized);
 
@@ -285,6 +301,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       micStreamRef.current.getTracks().forEach((t) => t.stop());
       micStreamRef.current = null;
     }
+    displayAvgRef.current = 0;
     setAudioLevel(0);
   }, []);
 
@@ -292,18 +309,17 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setIsRecording(true);
     isRecordingRef.current = true;
 
-    const isScreenMode = audioSource !== "mic" || displayStreamRef.current !== null;
-
-    if (isScreenMode) {
-      // 1. Connect directly to native Apple ScreenCaptureKit
-      startScreenCaptureKitStream();
-    } else {
-      // 2. Personal mic mode
-      startWebSpeechRecognition();
-    }
-
-    // 3. Audio visualizer monitoring
+    // 1. Audio visualizer monitoring & mic stream acquisition
     await startAudioMonitoring();
+
+    // 2. Continuous real-time speech recognition engine
+    startWebSpeechRecognition();
+
+    // 3. ScreenCaptureKit SSE stream (if native bridge is active)
+    const isScreenMode = audioSource !== "mic" || displayStreamRef.current !== null;
+    if (isScreenMode) {
+      startScreenCaptureKitStream();
+    }
 
     // 4. Trigger Tauri Native Backend if running in desktop app
     try {
@@ -385,15 +401,11 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Automatically initiate live recording and ScreenCaptureKit transcription
+      // Automatically initiate live recording
       start();
 
       videoTrack.onended = () => {
-        setTargetStreamLabel(null);
-        setDisplayStream(null);
-        setHasDisplayAudio(false);
-        displayStreamRef.current = null;
-        displayAnalyserRef.current = null;
+        stopDisplayMedia();
       };
     } catch (err) {
       console.warn("Screen/Window selection canceled or failed:", err);
@@ -409,6 +421,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setHasDisplayAudio(false);
     setTargetStreamLabel(null);
     displayAnalyserRef.current = null;
+    displayAvgRef.current = 0;
   }, []);
 
   const toggle = useCallback(() => {
