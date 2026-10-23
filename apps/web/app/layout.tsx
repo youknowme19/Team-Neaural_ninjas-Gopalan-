@@ -5,14 +5,14 @@ import { SmoothScrollProvider } from "../components/motion/SmoothScrollProvider"
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
-  variable: "--font-sans",
+  variable: "--font-plus-jakarta",
   weight: ["400", "500", "600", "700", "800"],
   display: "swap",
 });
 
 const playfairDisplay = Playfair_Display({
   subsets: ["latin"],
-  variable: "--font-serif-italic",
+  variable: "--font-playfair",
   style: ["italic", "normal"],
   weight: ["400", "600"],
   display: "swap",
@@ -20,7 +20,7 @@ const playfairDisplay = Playfair_Display({
 
 const jetbrainsMono = JetBrains_Mono({
   subsets: ["latin"],
-  variable: "--font-mono",
+  variable: "--font-jetbrains",
   weight: ["400", "500"],
   display: "swap",
 });
@@ -46,7 +46,15 @@ export default function RootLayout({
       lang="en"
       className={`${plusJakartaSans.variable} ${playfairDisplay.variable} ${jetbrainsMono.variable}`}
     >
-      <body className="bg-[#FAF8F4] text-on-surface antialiased font-sans min-h-screen selection:bg-secondary-container selection:text-primary">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link
+          href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Playfair+Display:ital,wght@0,400;0,600;1,400;1,600&family=JetBrains+Mono:wght@400;500;600&display=swap"
+          rel="stylesheet"
+        />
+      </head>
+      <body className="bg-[#FAF8F4] text-on-surface antialiased min-h-screen selection:bg-secondary-container selection:text-primary">
         <SmoothScrollProvider>
           {children}
         </SmoothScrollProvider>
