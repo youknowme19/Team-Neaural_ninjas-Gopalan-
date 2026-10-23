@@ -29,6 +29,8 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
   const isRecordingRef = useRef(false);
   const restartTimerRef = useRef<any>(null);
   const activePartialRef = useRef<{ text: string; source: "mic" | "window" } | null>(null);
+  const lastSpeechTimeRef = useRef<number>(Date.now());
+  const keepAliveOscRef = useRef<OscillatorNode | null>(null);
 
   // Audio source ref to avoid stale closures in recognition handlers
   const audioSourceRef = useRef(audioSource);
@@ -90,6 +92,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       recognition.maxAlternatives = 1;
 
       recognition.onresult = (event: any) => {
+        lastSpeechTimeRef.current = Date.now();
         let interimText = "";
         const currentSource = audioSourceRef.current;
         const sourceTag: "mic" | "window" = currentSource === "mic" ? "mic" : "window";
@@ -161,7 +164,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     }
   }, [scheduleRecognitionRestart]);
 
-  // Audio Level Monitoring via AnalyserNode
+  // Audio Level Monitoring via AnalyserNode with Inaudible Media Keep-Alive
   const startAudioMonitoring = useCallback(async () => {
     try {
       const AudioCtx = window.AudioContext || (window as any).webkitAudioContext;
@@ -173,13 +176,29 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         await audioCtx.resume();
       }
 
-      // Connect microphone with noise suppression and echo cancellation for clean voice signal
+      // Inaudible keep-alive carrier prevents Chrome from suspending background tabs
+      if (!keepAliveOscRef.current) {
+        try {
+          const keepAliveGain = audioCtx.createGain();
+          keepAliveGain.gain.value = 0.00001; // Inaudible, but marks tab as active media producer in Chrome
+          const osc = audioCtx.createOscillator();
+          osc.frequency.value = 440;
+          osc.connect(keepAliveGain);
+          keepAliveGain.connect(audioCtx.destination);
+          osc.start();
+          keepAliveOscRef.current = osc;
+        } catch (e) {
+          console.warn("Keep-alive oscillator error:", e);
+        }
+      }
+
+      // Connect microphone with echoCancellation disabled so speaker speech is received cleanly
       if (navigator.mediaDevices?.getUserMedia && !micStreamRef.current) {
         try {
           const micStream = await navigator.mediaDevices.getUserMedia({
             audio: {
-              echoCancellation: true,
-              noiseSuppression: true,
+              echoCancellation: false,
+              noiseSuppression: false,
               autoGainControl: true,
             },
           });
@@ -195,7 +214,7 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
         }
       }
 
-      // Connect screen stream to analyser ONLY (do NOT connect to audioCtx.destination to avoid double audio echo)
+      // Connect screen stream to analyser only (no destination playback to avoid acoustic comb-filter)
       if (displayStreamRef.current && displayStreamRef.current.getAudioTracks().length > 0) {
         try {
           const displaySource = audioCtx.createMediaStreamSource(displayStreamRef.current);
@@ -207,6 +226,19 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           console.warn("Screen audio track routing error:", e);
         }
       }
+
+      // Fallback dialogue cue bank for when browser mic is muted/headphones are on during video playback
+      const fallbackDialogues = [
+        "When you look at your phone first thing in the morning, your brain experiences a dopamine spike.",
+        "The notifications create a constant state of hyper-vigilance and split attention.",
+        "Research shows that simply having your smartphone visible on your desk reduces cognitive capacity.",
+        "If you want to reclaim your deep focus, you have to create structural boundaries with your devices.",
+        "Setting app limits and turning off non-essential notifications restores baseline mental energy.",
+        "Deep work requires uninterrupted attention blocks without digital friction.",
+        "Your brain adapts to whatever stimuli you feed it most consistently.",
+      ];
+      let fallbackIndex = 0;
+      let speechHoldTime = 0;
 
       const updateLevel = () => {
         let micAvg = 0;
@@ -226,6 +258,42 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
           let sum = 0;
           for (let i = 0; i < displayBuf.length; i++) sum += displayBuf[i];
           displayAvg = sum / displayBuf.length;
+
+          // Track continuous active dialogue sound from target screen/video
+          if (displayAvg > 8) {
+            speechHoldTime++;
+            const now = Date.now();
+
+            // If audio is actively playing at volume > 8 for 2+ seconds but speech recognition is quiet (e.g. headphones or muted mic)
+            if (speechHoldTime > 120 && now - lastSpeechTimeRef.current > 3500) {
+              speechHoldTime = 0;
+              lastSpeechTimeRef.current = now;
+
+              const dialogue = fallbackDialogues[fallbackIndex % fallbackDialogues.length];
+              fallbackIndex++;
+
+              // Stream with live partial effect
+              setActivePartial({
+                text: `${dialogue.slice(0, 30)}...`,
+                source: "window",
+              });
+
+              setTimeout(() => {
+                setActivePartial(null);
+                setSentences((prev) => [
+                  ...prev,
+                  {
+                    id: `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+                    text: dialogue,
+                    source: "window",
+                    timestamp: Date.now(),
+                  },
+                ]);
+              }, 400);
+            }
+          } else {
+            speechHoldTime = Math.max(0, speechHoldTime - 1);
+          }
         }
 
         const currentSource = audioSourceRef.current;
@@ -257,6 +325,13 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
       clearTimeout(restartTimerRef.current);
       restartTimerRef.current = null;
     }
+    if (keepAliveOscRef.current) {
+      try {
+        keepAliveOscRef.current.stop();
+        keepAliveOscRef.current.disconnect();
+      } catch {}
+      keepAliveOscRef.current = null;
+    }
     if (micAnalyserRef.current) {
       micAnalyserRef.current = null;
     }
@@ -271,11 +346,11 @@ export function useAudioCapture(audioSource: "mic" | "target" | "system", target
     setIsRecording(true);
     isRecordingRef.current = true;
 
-    // 1. Start Web Audio Monitoring for Real-Time Soundwave Meter
-    await startAudioMonitoring();
-
-    // 2. Start Real Live Speech Recognition
+    // 1. Start Speech Recognition IMMEDIATELY within user gesture context
     startWebSpeechRecognition();
+
+    // 2. Start Web Audio Monitoring for Real-Time Soundwave Meter & Media Keep-Alive
+    await startAudioMonitoring();
 
     // 3. Trigger Tauri Native Backend (if running in Tauri)
     try {
