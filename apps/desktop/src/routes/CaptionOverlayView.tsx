@@ -1,5 +1,6 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
+  Search,
   Volume2,
   Mic,
   Check,
@@ -86,7 +87,7 @@ function compactAppLabel(name: string): string {
 }
 
 /**
- * 60 FPS Smooth Acoustic Wave Visualizer (replaces the static magnifying glass).
+ * 60 FPS Smooth Acoustic Wave Visualizer.
  * Driven by live hardware audio energy (`level`) + smooth spring interpolation.
  */
 const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, active }) => {
@@ -107,31 +108,29 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const width = 26;
-    const height = 26;
+    const width = 22;
+    const height = 22;
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // 5 harmonic voice bars (center-weighted like an acoustic wave packet)
-    const barWeights = [0.48, 0.78, 1.0, 0.78, 0.48];
-    const barOffsets = [0.0, 1.15, 2.3, 3.45, 4.6];
+    // 4 harmonic voice bars
+    const barWeights = [0.55, 1.0, 0.85, 0.5];
+    const barOffsets = [0.0, 1.4, 2.8, 4.2];
 
     const render = () => {
       const target = targetLevelRef.current;
-      // Fast attack (0.28), smooth organic decay (0.10)
       const rate = target > smoothLevelRef.current ? 0.28 : 0.1;
       smoothLevelRef.current += (target - smoothLevelRef.current) * rate;
       const amp = smoothLevelRef.current;
 
-      // Advance phase faster when voice is active, gentle breathing when idle
-      phaseRef.current += 0.065 + amp * 0.16;
+      phaseRef.current += 0.07 + amp * 0.16;
 
       ctx.clearRect(0, 0, width, height);
 
-      const barCount = 5;
-      const barWidth = 2.6;
-      const gap = 2.4;
+      const barCount = 4;
+      const barWidth = 2.4;
+      const gap = 2.2;
       const totalW = barCount * barWidth + (barCount - 1) * gap;
       const startX = (width - totalW) / 2;
       const centerY = height / 2;
@@ -142,15 +141,14 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
         const secondary = Math.cos(phaseRef.current * 1.6 - barOffsets[i]) * 0.5 + 0.5;
         const modulation = 0.65 * wave + 0.35 * secondary;
 
-        // Idle minimum height (4.5px) -> active harmonic wave up to 22px
-        const idleBreath = 4.2 + Math.sin(phaseRef.current * 0.45 + i * 0.9) * 1.1 * w;
-        const activeHeight = idleBreath + amp * w * (7.0 + modulation * 12.5);
-        const h = Math.min(22, Math.max(4, activeHeight));
+        const idleBreath = 3.6 + Math.sin(phaseRef.current * 0.45 + i * 0.9) * 0.8 * w;
+        const activeHeight = idleBreath + amp * w * (6.0 + modulation * 11.0);
+        const h = Math.min(18, Math.max(3.5, activeHeight));
 
         const x = startX + i * (barWidth + gap);
         const y = centerY - h / 2;
 
-        ctx.fillStyle = amp > 0.08 ? '#2E1F14' : '#554030';
+        ctx.fillStyle = amp > 0.08 ? '#0f172a' : '#64748b';
         ctx.beginPath();
         ctx.roundRect(x, y, barWidth, h, barWidth / 2);
         ctx.fill();
@@ -166,8 +164,8 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: '26px', height: '26px' }}
-      className="shrink-0 mr-2.5 pointer-events-none"
+      style={{ width: '22px', height: '22px' }}
+      className="shrink-0 mr-2 pointer-events-none"
     />
   );
 };
@@ -231,7 +229,7 @@ export const CaptionOverlayView: React.FC = () => {
       }
     });
 
-    // 2. Fast 75ms status + live hardware audio amplitude sync for the wave visualizer
+    // 2. Fast 75ms status + live hardware audio amplitude sync for visualizer
     const pollInterval = setInterval(async () => {
       try {
         const status = await invoke<LiveStatusPayload>('get_live_status');
@@ -432,39 +430,39 @@ export const CaptionOverlayView: React.FC = () => {
       ? 'text-[22px]'
       : 'text-[19.5px]';
 
-  // Creative default idle text (replaces "Spotlight Search")
-  const idleCreativeText =
-    targetLang === 'en'
-      ? 'Every word, captured live...'
-      : `Listening live → ${currentLangObj.nativeName}...`;
-
   const hasOverflowLeft = caption.length > 28;
 
   return (
     <div className="w-screen h-screen flex flex-col items-center justify-start bg-transparent select-none px-2 pt-[10px]">
-      {/* Exact Spotlight Pill — Freely Movable + Width-Extendable */}
+      {/* Exact Spotlight Search Capsule Pill */}
       <div
         onMouseDown={handlePillMouseDown}
         style={{
           background:
-            'linear-gradient(90deg, rgba(226, 203, 187, 0.94) 0%, rgba(250, 237, 227, 0.96) 100%)',
-          border: '1.5px solid rgba(255, 255, 255, 0.72)',
+            'linear-gradient(180deg, rgba(246, 248, 251, 0.92) 0%, rgba(234, 239, 245, 0.88) 100%)',
+          border: '1px solid rgba(255, 255, 255, 0.75)',
           boxShadow:
-            '0 10px 28px rgba(42, 26, 14, 0.22), inset 0 1px 1px rgba(255, 255, 255, 0.85)',
+            '0 12px 32px -4px rgba(15, 23, 42, 0.16), 0 4px 12px -2px rgba(15, 23, 42, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.95)',
+          backdropFilter: 'blur(36px) saturate(190%)',
+          WebkitBackdropFilter: 'blur(36px) saturate(190%)',
         }}
-        className="group/pill relative w-full h-[62px] rounded-full flex items-center justify-between pl-4 pr-3.5 cursor-grab active:cursor-grabbing overflow-hidden shrink-0"
+        className="group/pill relative w-full h-[60px] rounded-full flex items-center justify-between pl-4 pr-3.5 cursor-grab active:cursor-grabbing overflow-hidden shrink-0"
       >
-        {/* Left: Smooth Real-Time Audio Wave Simulation + Smooth Auto-Scrolling Caption */}
+        {/* Left: Authentic Spotlight Magnifying Glass + Caret + Spotlight Search Placeholder or Live Transcription */}
         <div className="flex items-center flex-1 min-w-0 overflow-hidden mr-2 pointer-events-none">
-          <SmoothAudioWave level={audioLevel} active={isSpeakingPulse} />
+          <Search className="w-[19px] h-[19px] text-[#64748b] shrink-0 mr-3 stroke-[2.2]" />
+
+          {audioLevel > 0.08 && (
+            <SmoothAudioWave level={audioLevel} active={isSpeakingPulse} />
+          )}
 
           {!caption ? (
             <div className="flex items-center overflow-hidden">
-              <span className="w-[2px] h-[26px] bg-[#3B2A1E] rounded-full shrink-0 mr-[2px]" />
+              <span className="w-[1.5px] h-[23px] bg-[#334155] rounded-full shrink-0 mr-[2px] animate-pulse" />
               <span
-                className={`${fontSizeClass} font-normal tracking-[-0.015em] text-[#5A4535] whitespace-nowrap truncate`}
+                className={`${fontSizeClass} font-normal tracking-[-0.018em] text-[#64748b] whitespace-nowrap select-none truncate`}
               >
-                {idleCreativeText}
+                Spotlight Search
               </span>
             </div>
           ) : (
@@ -484,44 +482,44 @@ export const CaptionOverlayView: React.FC = () => {
                 className="overflow-x-hidden whitespace-nowrap max-w-full"
               >
                 {committedText && tentativeText ? (
-                  <span className={`${fontSizeClass} tracking-[-0.01em] whitespace-nowrap`}>
-                    <span className="font-normal text-[#2D1F14]">{committedText} </span>
-                    <span className="font-normal text-[#654B38] transition-opacity duration-150">
+                  <span className={`${fontSizeClass} tracking-[-0.012em] whitespace-nowrap`}>
+                    <span className="font-normal text-[#0f172a]">{committedText} </span>
+                    <span className="font-normal text-[#64748b] transition-opacity duration-150">
                       {tentativeText}
                     </span>
                   </span>
                 ) : (
                   <span
-                    className={`${fontSizeClass} font-normal tracking-[-0.01em] text-[#2D1F14] whitespace-nowrap`}
+                    className={`${fontSizeClass} font-normal tracking-[-0.012em] text-[#0f172a] whitespace-nowrap`}
                   >
                     {caption}
                   </span>
                 )}
               </div>
-              <span className="w-[2px] h-[26px] bg-[#3B2A1E] rounded-full shrink-0 ml-[2px] animate-pulse" />
+              <span className="w-[2px] h-[23px] bg-[#0f172a] rounded-full shrink-0 ml-[2px] animate-pulse" />
             </div>
           )}
         </div>
 
-        {/* Right: Hover Copy/Clear + Small Language Tag + Truthful Mode Badge */}
+        {/* Right: Quick Controls Styled as Refined Translucent Frosted Glass Pills */}
         <div className="flex items-center shrink-0 space-x-1 mr-1">
           {/* Quick Copy & Clear buttons (appear subtly on hover when caption is active) */}
           {caption && (
             <div className="hidden group-hover/pill:flex items-center space-x-0.5 mr-0.5">
               <button
                 onClick={handleCopyCaption}
-                className="h-[22px] px-1.5 rounded-full bg-[#3B2A1E]/[0.08] hover:bg-[#3B2A1E]/[0.18] text-[#3B2A1E] flex items-center space-x-1 text-[10px] font-medium transition-colors"
+                className="h-[22px] px-1.5 rounded-full bg-black/[0.06] hover:bg-black/[0.12] text-[#334155] flex items-center space-x-1 text-[10px] font-medium transition-colors"
                 title="Copy live caption (Ctrl+C)"
               >
                 {copiedFeedback ? (
-                  <Check className="w-2.5 h-2.5 text-emerald-800" />
+                  <Check className="w-2.5 h-2.5 text-emerald-600" />
                 ) : (
                   <Copy className="w-2.5 h-2.5" />
                 )}
               </button>
               <button
                 onClick={handleClearCaption}
-                className="h-[22px] w-[22px] rounded-full bg-[#3B2A1E]/[0.08] hover:bg-[#3B2A1E]/[0.18] text-[#3B2A1E] flex items-center justify-center transition-colors"
+                className="h-[22px] w-[22px] rounded-full bg-black/[0.06] hover:bg-black/[0.12] text-[#334155] flex items-center justify-center transition-colors"
                 title="Clear current caption"
               >
                 <RotateCcw className="w-2.5 h-2.5" />
@@ -536,29 +534,29 @@ export const CaptionOverlayView: React.FC = () => {
             }
             className={`h-[22px] flex items-center space-x-1 px-1.5 rounded-full text-[10px] font-semibold transition-all ${
               pickerOpen && pickerTab === 'event'
-                ? 'bg-[#3B2A1E] text-[#FAF0E8] shadow-sm'
-                : 'bg-[#3B2A1E]/[0.09] hover:bg-[#3B2A1E]/[0.16] text-[#4E3B2C]'
+                ? 'bg-[#0f172a] text-white shadow-sm'
+                : 'bg-black/[0.05] hover:bg-black/[0.1] text-[#334155] border border-black/[0.04]'
             }`}
-            title="Live Event QR — Let multiple phones scan & view captions in their own language"
+            title="Live Event QR — Let multiple phones scan & view captions in real time"
           >
             <QrCode className="w-2.5 h-2.5 shrink-0" />
             {isExtended && <span>Live Event</span>}
             {broadcastInfo && broadcastInfo.connected_devices > 0 && (
-              <span className="px-1 rounded-full bg-emerald-700 text-[#FAF0E8] text-[9px] leading-tight">
+              <span className="px-1 rounded-full bg-emerald-600 text-white text-[9px] leading-tight">
                 {broadcastInfo.connected_devices}
               </span>
             )}
           </button>
 
-          {/* 1. Small Target Caption Language Badge (e.g. EN / हिं) */}
+          {/* 1. Target Caption Language Badge (e.g. EN / हिं) */}
           <button
             onClick={() =>
               pickerOpen && pickerTab === 'lang' ? closePicker() : openPicker('lang')
             }
             className={`h-[22px] flex items-center space-x-1 px-1.5 rounded-full text-[10px] font-semibold transition-all ${
               targetLang !== 'en'
-                ? 'bg-[#3B2A1E] text-[#FAF0E8] shadow-sm'
-                : 'bg-[#3B2A1E]/[0.09] hover:bg-[#3B2A1E]/[0.16] text-[#4E3B2C]'
+                ? 'bg-[#0f172a] text-white shadow-sm'
+                : 'bg-black/[0.05] hover:bg-black/[0.1] text-[#334155] border border-black/[0.04]'
             }`}
             title={`Caption Language: ${currentLangObj.label} (${currentLangObj.nativeName})`}
           >
@@ -566,31 +564,29 @@ export const CaptionOverlayView: React.FC = () => {
             <span>{currentLangObj.badge}</span>
           </button>
 
-          {/* 2. Audio Source Badge:
-              - When in 'mic' mode: ALWAYS shows the Microphone icon [🎤 v] (NEVER shows Chrome tag!)
-              - When in 'app' mode: shows compact [🔊 ✕] by default, and shows app name only when pill is extended */}
+          {/* 2. Audio Source Badge (Mic or App Audio) */}
           {sourceMode === 'app' && selectedApp ? (
             <div
-              className="h-[22px] flex items-center bg-[#3B2A1E]/10 border border-[#3B2A1E]/20 rounded-full pl-1.5 pr-1 space-x-1"
+              className="h-[22px] flex items-center bg-black/[0.06] border border-black/[0.08] rounded-full pl-1.5 pr-1 space-x-1"
               title={`Sharing audio from ${selectedApp.app_name}`}
             >
               <button
                 onClick={() =>
                   pickerOpen && pickerTab === 'source' ? closePicker() : openPicker('source')
                 }
-                className="flex items-center space-x-1 text-[#3B2A1E] hover:opacity-80"
+                className="flex items-center space-x-1 text-[#0f172a] hover:opacity-80"
                 title={`Switch shared app (${selectedApp.app_name})`}
               >
-                <Volume2 className="w-2.5 h-2.5 text-[#3B2A1E] animate-pulse shrink-0" />
+                <Volume2 className="w-2.5 h-2.5 text-[#0f172a] animate-pulse shrink-0" />
                 {isExtended && (
-                  <span className="text-[10px] font-medium text-[#3B2A1E] max-w-[60px] truncate leading-none">
+                  <span className="text-[10px] font-medium text-[#0f172a] max-w-[60px] truncate leading-none">
                     {compactAppLabel(selectedApp.app_name)}
                   </span>
                 )}
               </button>
               <button
                 onClick={() => handleSwitchToMic(selectedMic)}
-                className="w-3.5 h-3.5 rounded-full bg-[#3B2A1E]/15 hover:bg-[#3B2A1E]/30 flex items-center justify-center text-[#3B2A1E]"
+                className="w-3.5 h-3.5 rounded-full bg-black/[0.08] hover:bg-black/[0.16] flex items-center justify-center text-[#0f172a]"
                 title="Stop sharing app audio & return to Mic"
               >
                 <X className="w-2 h-2" />
@@ -601,7 +597,7 @@ export const CaptionOverlayView: React.FC = () => {
               onClick={() =>
                 pickerOpen && pickerTab === 'source' ? closePicker() : openPicker('source')
               }
-              className="relative h-[22px] flex items-center space-x-0.5 bg-[#3B2A1E]/[0.08] hover:bg-[#3B2A1E]/[0.15] text-[#4E3B2C] px-1.5 rounded-full text-[10px] font-medium transition-colors"
+              className="relative h-[22px] flex items-center space-x-0.5 bg-black/[0.05] hover:bg-black/[0.1] text-[#334155] border border-black/[0.04] px-1.5 rounded-full text-[10px] font-medium transition-colors"
               title={
                 deviceAudioDetected && suggestedApp
                   ? `Microphone Active — click to switch to ${suggestedApp.app_name} audio`
@@ -613,7 +609,7 @@ export const CaptionOverlayView: React.FC = () => {
               <ChevronDown className="w-2.5 h-2.5 opacity-70" />
               {deviceAudioDetected && (
                 <span
-                  className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-600 border border-[#FAF0E8]"
+                  className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 border border-white"
                   title="Media audio detected — click to share app audio"
                 />
               )}
@@ -629,7 +625,7 @@ export const CaptionOverlayView: React.FC = () => {
           title="Drag horizontally (or double-click) to extend pill length"
           className="absolute right-0 top-0 bottom-0 w-3 cursor-ew-resize flex items-center justify-center group"
         >
-          <div className="w-[2.5px] h-4 rounded-full bg-[#3B2A1E]/20 group-hover:bg-[#3B2A1E]/55 transition-colors" />
+          <div className="w-[2.5px] h-4 rounded-full bg-slate-400/40 group-hover:bg-slate-600/70 transition-colors" />
         </div>
       </div>
 
@@ -638,21 +634,24 @@ export const CaptionOverlayView: React.FC = () => {
         <div
           style={{
             background:
-              'linear-gradient(180deg, rgba(244, 229, 217, 0.97) 0%, rgba(250, 239, 230, 0.98) 100%)',
-            border: '1.5px solid rgba(255, 255, 255, 0.78)',
-            boxShadow: '0 16px 36px rgba(42, 26, 14, 0.28)',
+              'linear-gradient(180deg, rgba(248, 250, 252, 0.96) 0%, rgba(241, 245, 249, 0.98) 100%)',
+            border: '1px solid rgba(255, 255, 255, 0.85)',
+            boxShadow:
+              '0 20px 45px -8px rgba(15, 23, 42, 0.22), 0 4px 16px rgba(15, 23, 42, 0.08)',
+            backdropFilter: 'blur(36px) saturate(190%)',
+            WebkitBackdropFilter: 'blur(36px) saturate(190%)',
           }}
-          className="w-full mt-2 rounded-2xl p-2.5 max-h-[230px] overflow-y-auto flex flex-col space-y-1.5 text-[#3B2A1E]"
+          className="w-full mt-2 rounded-2xl p-2.5 max-h-[230px] overflow-y-auto flex flex-col space-y-1.5 text-[#0f172a]"
         >
           {/* Top Bar: Tabs + Font Size Switcher + Close */}
-          <div className="flex items-center justify-between px-1 pb-1 border-b border-[#3B2A1E]/10">
+          <div className="flex items-center justify-between px-1 pb-1 border-b border-black/[0.08]">
             <div className="flex items-center space-x-1">
               <button
                 onClick={() => setPickerTab('source')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition-colors ${
                   pickerTab === 'source'
-                    ? 'bg-[#3B2A1E] text-[#FAF0E8]'
-                    : 'text-[#6E5644] hover:bg-[#3B2A1E]/10'
+                    ? 'bg-[#0f172a] text-white shadow-sm'
+                    : 'text-[#475569] hover:bg-black/[0.06]'
                 }`}
               >
                 Audio Source
@@ -661,8 +660,8 @@ export const CaptionOverlayView: React.FC = () => {
                 onClick={() => setPickerTab('lang')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition-colors ${
                   pickerTab === 'lang'
-                    ? 'bg-[#3B2A1E] text-[#FAF0E8]'
-                    : 'text-[#6E5644] hover:bg-[#3B2A1E]/10'
+                    ? 'bg-[#0f172a] text-white shadow-sm'
+                    : 'text-[#475569] hover:bg-black/[0.06]'
                 }`}
               >
                 Language ({currentLangObj.nativeName})
@@ -671,8 +670,8 @@ export const CaptionOverlayView: React.FC = () => {
                 onClick={() => setPickerTab('event')}
                 className={`px-2.5 py-1 rounded-lg text-[11px] font-semibold uppercase tracking-wider transition-colors flex items-center space-x-1 ${
                   pickerTab === 'event'
-                    ? 'bg-[#3B2A1E] text-[#FAF0E8]'
-                    : 'text-[#6E5644] hover:bg-[#3B2A1E]/10'
+                    ? 'bg-[#0f172a] text-white shadow-sm'
+                    : 'text-[#475569] hover:bg-black/[0.06]'
                 }`}
               >
                 <QrCode className="w-3 h-3" />
@@ -681,16 +680,16 @@ export const CaptionOverlayView: React.FC = () => {
             </div>
 
             <div className="flex items-center space-x-1">
-              {/* Quick Caption Text Size Control (S / M / L) for Live Events */}
-              <div className="flex items-center bg-[#3B2A1E]/[0.07] rounded-lg p-0.5 text-[10px] font-semibold">
+              {/* Quick Caption Text Size Control (S / M / L) */}
+              <div className="flex items-center bg-black/[0.05] rounded-lg p-0.5 text-[10px] font-semibold">
                 {(['sm', 'md', 'lg'] as const).map((sz) => (
                   <button
                     key={sz}
                     onClick={() => setFontScale(sz)}
                     className={`px-1.5 py-0.5 rounded-md uppercase transition-colors ${
                       fontScale === sz
-                        ? 'bg-[#3B2A1E] text-[#FAF0E8]'
-                        : 'text-[#6E5644] hover:text-[#3B2A1E]'
+                        ? 'bg-[#0f172a] text-white'
+                        : 'text-[#475569] hover:text-[#0f172a]'
                     }`}
                     title={`Caption text size: ${sz.toUpperCase()}`}
                   >
@@ -698,7 +697,8 @@ export const CaptionOverlayView: React.FC = () => {
                   </button>
                 ))}
               </div>
-              <button onClick={closePicker} className="p-1 hover:text-[#3B2A1E] text-[#6E5644]">
+
+              <button onClick={closePicker} className="p-1 hover:text-[#0f172a] text-[#64748b]">
                 <X className="w-3.5 h-3.5" />
               </button>
             </div>
@@ -708,7 +708,7 @@ export const CaptionOverlayView: React.FC = () => {
             /* Live Event Multi-Device QR Broadcast View */
             <div className="flex items-center space-x-3.5 pt-1 px-1.5 pb-0.5">
               {broadcastInfo?.qr_data_url ? (
-                <div className="bg-white p-1.5 rounded-xl shadow-sm border border-[#3B2A1E]/15 shrink-0">
+                <div className="bg-white p-1.5 rounded-xl shadow-sm border border-black/[0.1] shrink-0">
                   <img
                     src={broadcastInfo.qr_data_url}
                     alt="Live Event QR Code"
@@ -716,7 +716,7 @@ export const CaptionOverlayView: React.FC = () => {
                   />
                 </div>
               ) : (
-                <div className="w-[128px] h-[128px] rounded-xl bg-[#3B2A1E]/10 flex items-center justify-center text-[11px] shrink-0">
+                <div className="w-[128px] h-[128px] rounded-xl bg-black/[0.05] flex items-center justify-center text-[11px] text-[#64748b] shrink-0">
                   Generating QR...
                 </div>
               )}
@@ -724,22 +724,22 @@ export const CaptionOverlayView: React.FC = () => {
               <div className="flex flex-col justify-between flex-1 min-w-0 space-y-2">
                 <div>
                   <div className="flex items-center space-x-1.5">
-                    <span className="w-2 h-2 rounded-full bg-emerald-600 animate-pulse" />
-                    <span className="text-[12.5px] font-bold text-[#2D1F14]">
+                    <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
+                    <span className="text-[12.5px] font-bold text-[#0f172a]">
                       Live Event Multi-Device Broadcast
                     </span>
                   </div>
-                  <p className="text-[11px] text-[#5A4535] leading-snug mt-0.5">
+                  <p className="text-[11px] text-[#475569] leading-snug mt-0.5">
                     Scan with any phone or tablet on Wi-Fi/Hotspot. Each viewer can independently choose their own language (Hindi, Tamil, Telugu, English, etc.) in real time!
                   </p>
                 </div>
 
-                <div className="flex items-center justify-between bg-[#3B2A1E]/[0.07] rounded-xl px-2.5 py-1.5 border border-[#3B2A1E]/10">
+                <div className="flex items-center justify-between bg-black/[0.05] rounded-xl px-2.5 py-1.5 border border-black/[0.06]">
                   <div className="truncate pr-2">
-                    <div className="text-[9.5px] uppercase font-bold tracking-wider text-[#6E5644]">
+                    <div className="text-[9.5px] uppercase font-bold tracking-wider text-[#64748b]">
                       Audience Join Link
                     </div>
-                    <div className="text-[12px] font-mono font-semibold text-[#2D1F14] truncate">
+                    <div className="text-[12px] font-mono font-semibold text-[#0f172a] truncate">
                       {broadcastInfo?.url || 'http://localhost:8080'}
                     </div>
                   </div>
@@ -753,7 +753,7 @@ export const CaptionOverlayView: React.FC = () => {
                         } catch (_) {}
                       }
                     }}
-                    className="px-2.5 py-1 rounded-lg bg-[#3B2A1E] text-[#FAF0E8] text-[11px] font-semibold hover:opacity-90 shrink-0 flex items-center space-x-1"
+                    className="px-2.5 py-1 rounded-lg bg-[#0f172a] text-white text-[11px] font-semibold hover:opacity-90 shrink-0 flex items-center space-x-1 shadow-sm"
                   >
                     {copiedUrlFeedback ? (
                       <>
@@ -769,8 +769,8 @@ export const CaptionOverlayView: React.FC = () => {
                   </button>
                 </div>
 
-                <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#4E3B2C]">
-                  <Users className="w-3.5 h-3.5 text-emerald-700" />
+                <div className="flex items-center space-x-1.5 text-[11px] font-semibold text-[#334155]">
+                  <Users className="w-3.5 h-3.5 text-emerald-600" />
                   <span>
                     {broadcastInfo?.connected_devices || 0}{' '}
                     {broadcastInfo?.connected_devices === 1 ? 'device' : 'devices'} connected live
@@ -789,8 +789,8 @@ export const CaptionOverlayView: React.FC = () => {
                     onClick={() => handleSelectLanguage(lang.code)}
                     className={`flex items-center justify-between px-3 py-1.5 rounded-xl text-left text-[12.5px] transition-colors ${
                       active
-                        ? 'bg-[#3B2A1E] text-[#FAF0E8] font-medium'
-                        : 'hover:bg-[#3B2A1E]/10 text-[#3B2A1E]'
+                        ? 'bg-[#0f172a] text-white font-medium shadow-sm'
+                        : 'hover:bg-black/[0.06] text-[#0f172a]'
                     }`}
                   >
                     <div className="flex items-center space-x-2 truncate">
@@ -803,9 +803,9 @@ export const CaptionOverlayView: React.FC = () => {
               })}
             </div>
           ) : (
-            /* Exclusive Single Audio Source List: All Connected Microphones + App/Window Audio */
+            /* Audio Source List: All Microphones + Active App Audio */
             <div className="flex flex-col space-y-1">
-              <div className="px-2 pt-0.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#6E5644] flex items-center justify-between">
+              <div className="px-2 pt-0.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748b] flex items-center justify-between">
                 <span>Microphones ({micsList.length || 1} Connected)</span>
                 <span className="text-[9.5px] font-normal normal-case opacity-80">
                   Click any mic to switch
@@ -822,8 +822,8 @@ export const CaptionOverlayView: React.FC = () => {
                       onClick={() => handleSwitchToMic(mic.id)}
                       className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
                         isMicSelected
-                          ? 'bg-[#3B2A1E] text-[#FAF0E8] font-medium'
-                          : 'hover:bg-[#3B2A1E]/10 text-[#3B2A1E]'
+                          ? 'bg-[#0f172a] text-white font-medium shadow-sm'
+                          : 'hover:bg-black/[0.06] text-[#0f172a]'
                       }`}
                     >
                       <div className="flex items-center space-x-2.5 min-w-0 flex-1 pr-2">
@@ -835,8 +835,8 @@ export const CaptionOverlayView: React.FC = () => {
                           <span
                             className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold uppercase tracking-wide shrink-0 ${
                               isMicSelected
-                                ? 'bg-[#FAF0E8]/20 text-[#FAF0E8]'
-                                : 'bg-[#3B2A1E]/10 text-[#5A4535]'
+                                ? 'bg-white/20 text-white'
+                                : 'bg-black/[0.08] text-[#475569]'
                             }`}
                           >
                             Default
@@ -852,8 +852,8 @@ export const CaptionOverlayView: React.FC = () => {
                   onClick={() => handleSwitchToMic(null)}
                   className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
                     sourceMode === 'mic'
-                      ? 'bg-[#3B2A1E] text-[#FAF0E8] font-medium'
-                      : 'hover:bg-[#3B2A1E]/10 text-[#3B2A1E]'
+                      ? 'bg-[#0f172a] text-white font-medium shadow-sm'
+                      : 'hover:bg-black/[0.06] text-[#0f172a]'
                   }`}
                 >
                   <div className="flex items-center space-x-2.5 truncate">
@@ -865,7 +865,7 @@ export const CaptionOverlayView: React.FC = () => {
               )}
 
               {windowsList.length > 0 && (
-                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#6E5644] border-t border-[#3B2A1E]/10 mt-1">
+                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748b] border-t border-black/[0.08] mt-1">
                   App / Browser Audio
                 </div>
               )}
@@ -881,13 +881,13 @@ export const CaptionOverlayView: React.FC = () => {
                     onClick={() => handleSelectApp(win)}
                     className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
                       isSelected
-                        ? 'bg-[#3B2A1E] text-[#FAF0E8] font-medium'
-                        : 'hover:bg-[#3B2A1E]/10 text-[#3B2A1E]'
+                        ? 'bg-[#0f172a] text-white font-medium shadow-sm'
+                        : 'hover:bg-black/[0.06] text-[#0f172a]'
                     }`}
                   >
                     <div className="flex items-center space-x-2.5 min-w-0 flex-1 pr-2">
                       {win.is_media_likely ? (
-                        <Volume2 className="w-4 h-4 shrink-0 text-amber-700" />
+                        <Volume2 className="w-4 h-4 shrink-0 text-amber-500" />
                       ) : (
                         <Monitor className="w-4 h-4 shrink-0 opacity-70" />
                       )}
