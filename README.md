@@ -1,13 +1,13 @@
 # LiveSpeak
 
-LiveSpeak is a featherweight (under 200MB total footprint), 100% on-device, ultra-low-latency live speech-to-text (STT) desktop application with integrated local grammar correction and live event audience broadcasting. Engineered using Tauri v2, native Rust audio pipelines, and quantized neural engine sidecars, the application guarantees zero cloud reliance, sub-second transcription latency, hardware-accelerated inference across Apple Silicon and Windows ARM64/x64 architectures, and zero-driver system audio capture for hybrid/virtual live events.
+LiveSpeak is a featherweight (under 200MB total footprint), 100% on-device, ultra-low-latency live speech-to-text (STT) desktop application with integrated local grammar correction, live event audience broadcasting, app-specific audio target locking, and zero-latency source-aware speaker diarization. Engineered using Tauri v2, native Rust audio pipelines, and quantized neural engine sidecars, the application guarantees zero cloud reliance, sub-second transcription latency, hardware-accelerated inference across Apple Silicon and Windows ARM64/x64 architectures, and driverless isolation of meeting audio.
 
 ---
 
 ## 1. Executive Summary & Core Constraints
 
 ### 1.1 Objective
-Deliver a production-ready, local-first dictation, transcription, and live-event broadcasting platform that operates without network latency, preserves absolute user privacy, and integrates seamlessly into desktop workflows through a floating, frameless glassmorphic interface, OBS stream overlays, and local audience mobile sync.
+Deliver a production-ready, local-first dictation, meeting transcription, and live-event broadcasting platform that operates without network latency, preserves absolute user privacy, isolates target application audio at the process ID (PID) level, and renders zero-latency speaker diarization through source-based color coding in a floating glassmorphic interface, OBS stream overlays, and local audience mobile sync.
 
 ### 1.2 Performance & Budgetary Constraints
 * **Total Binary & Asset Footprint:** Under 200 MB combined (Tauri v2 host binary, whisper.cpp sidecar binary, quantized GGUF weights, and static assets).
@@ -16,7 +16,8 @@ Deliver a production-ready, local-first dictation, transcription, and live-event
 * **Hardware Acceleration Targets:**
   * Apple Silicon: M-Series Neural Engine via CoreML backend compilation.
   * Windows: Qualcomm Snapdragon ARM64 and AMD/Intel x86_64 via DirectML backend compilation.
-* **Audio Routing Capabilities:** Dual-source audio ingestion supporting both physical microphone input and driverless system audio capture (macOS ScreenCaptureKit and Windows WASAPI loopback).
+* **Audio Routing Capabilities:** Multi-channel audio ingestion supporting physical microphone input, global system audio loopback, and PID-level target window isolation (macOS ScreenCaptureKit and Windows Application Loopback).
+* **Diarization Engine:** Zero-latency, zero-overhead source-based diarization (distinguishing local speaker from remote participants without heavy biometric AI models).
 * **Form Factor & Broadcasting:** Frameless, borderless, floating glassmorphic overlay adhering to native macOS and modern Windows visual paradigms, accompanied by an OBS transparent browser source and a zero-install LAN QR broadcast mode.
 
 ---
@@ -25,25 +26,30 @@ Deliver a production-ready, local-first dictation, transcription, and live-event
 
 ![LiveSpeak System Architecture](assets/livespeak_architecture.jpg)
 
-The following diagram details the multi-tier architectural topology of LiveSpeak, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, dual-source audio capture, sliding-window streaming, and LAN audience distribution.
+The following diagram details the multi-tier architectural topology of LiveSpeak, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, app-specific target lock, dual-buffer source-aware diarization, sliding-window streaming, and LAN audience distribution.
 
 ```mermaid
 graph TB
     subgraph Host_Environment["Host Operating System Layer"]
-        OS_Mic["Physical Audio Input (Microphone)"]
-        OS_SysAudio_Mac["macOS System Audio (ScreenCaptureKit API)"]
-        OS_SysAudio_Win["Windows System Audio (WASAPI Loopback)"]
+        OS_Mic["Physical Audio Input (Local Microphone)"]
+        OS_Target_Mac["Target App Window Audio (macOS ScreenCaptureKit PID Filter)"]
+        OS_Target_Win["Target App Window Audio (Windows Application Loopback PID)"]
+        OS_SysAudio["Global System Audio (WASAPI / ScreenCaptureKit)"]
         OS_Hotkeys["Global OS Shortcut Service (Cmd+Shift+Space / Ctrl+Shift+Space)"]
         OS_Clipboard["System Clipboard API"]
     end
 
     subgraph Tauri_Core["Tauri v2 Native Runtime (Rust Backend)"]
-        subgraph Audio_Pipeline["Dual-Source Audio Ingestion & Pipeline"]
-            Audio_Selector["Audio Source Controller (Mic vs. System)"]
-            CPAL_Engine["CPAL Stream / ScreenCaptureKit Bridge"]
-            Ring_Buffer["Lock-Free Circular Ring Buffer"]
-            Silero_VAD["Silero VAD (ONNX Runtime Engine)"]
-            Sliding_Window["3-Second Continuous Sliding Window Slicer"]
+        subgraph Target_Isolation["Process ID Audio Target Lock"]
+            Window_Enumerator["Window Enumerator (get_active_windows)"]
+            PID_Router["Process Audio Stream Router"]
+        end
+
+        subgraph Audio_Pipeline["Dual-Channel Audio Ingestion Pipeline"]
+            Buffer_Local["buffer_local: Circular Ring Buffer (Mic)"]
+            Buffer_Remote["buffer_remote: Circular Ring Buffer (Target Window)"]
+            Silero_VAD["Dual Silero VAD Engines (Local & Remote)"]
+            Sliding_Window["Continuous 3-Second Sliding Window Slicer"]
         end
 
         subgraph Orchestration_Layer["Process & Event Orchestration"]
@@ -51,7 +57,7 @@ graph TB
             Window_Controller["Window State & Z-Index Manager"]
             IPC_Bridge["Tauri IPC Event Dispatcher"]
             Sidecar_Manager["Sidecar Process Lifecycle Manager"]
-            Token_Classifier["Token Parser (PARTIAL vs. FINAL)"]
+            Token_Classifier["Token & Source Tag Classifier (PARTIAL vs FINAL)"]
         end
 
         subgraph Broadcast_Engine["Live Event LAN Broadcaster"]
@@ -68,7 +74,7 @@ graph TB
     end
 
     subgraph AI_Sidecars["Isolated Sidecar Executables"]
-        Whisper_Sidecar["whisper.cpp Binary (Stream Mode Subprocess)"]
+        Whisper_Sidecar["whisper.cpp Binary (Dual-Thread / Interleaved Stream)"]
         Llama_Sidecar["llama.cpp Binary (Subprocess)"]
         subgraph Hardware_Engines["Hardware Acceleration Backends"]
             CoreML_Engine["Apple Neural Engine (CoreML)"]
@@ -84,8 +90,9 @@ graph TB
 
     subgraph UI_Layer["Frontend Presentation Shell (React + TypeScript)"]
         Root_Widget["Frameless Glassmorphic Container"]
+        Target_Dropdown["Target App Window Selector (Zoom, Teams, etc.)"]
         Audio_Visualizer["Framer Motion Waveform Visualizer"]
-        Transcript_Stream["Dual-Token Live Stream (Partial / Final)"]
+        Transcript_Stream["Color-Coded Diarized Stream (Blue: Local / Green: Remote)"]
         Action_Toolbar["Cleanup, Clipboard & Broadcast Controls"]
         QR_Modal["Live Event QR Code Display"]
     end
@@ -95,32 +102,39 @@ graph TB
         Mobile_Audience["Mobile Phones via Local WiFi (LAN Web View)"]
     end
 
-    %% Ingestion Routing
-    OS_Mic --> Audio_Selector
-    OS_SysAudio_Mac --> Audio_Selector
-    OS_SysAudio_Win --> Audio_Selector
-    Audio_Selector --> CPAL_Engine
-    CPAL_Engine -->|16kHz 16-bit Mono PCM| Ring_Buffer
+    %% Process Routing & Target Lock
+    Target_Dropdown -->|Invoke: get_active_windows| Window_Enumerator
+    Window_Enumerator --> Target_Dropdown
+    Target_Dropdown -->|Set Target PID| PID_Router
+    OS_Target_Mac --> PID_Router
+    OS_Target_Win --> PID_Router
+    OS_SysAudio --> PID_Router
 
-    %% Processing paths
-    Ring_Buffer --> Silero_VAD
-    Ring_Buffer --> Sliding_Window
-    Silero_VAD -.->|VAD Dictation Mode| Sidecar_Manager
-    Sliding_Window -->|Continuous Live Event Mode| Sidecar_Manager
+    %% Dual Audio Ingestion
+    OS_Mic -->|Local Voice PCM| Buffer_Local
+    PID_Router -->|Isolated App Audio PCM| Buffer_Remote
 
-    %% Sidecar Inference
+    %% Dual Buffers to Slicers
+    Buffer_Local --> Silero_VAD
+    Buffer_Remote --> Silero_VAD
+    Buffer_Local --> Sliding_Window
+    Buffer_Remote --> Sliding_Window
+
+    %% Sidecar Inference with Source Metadata
+    Sliding_Window -->|Pipe Chunks with Channel Tags| Sidecar_Manager
+    Silero_VAD -->|VAD Chunks with Channel Tags| Sidecar_Manager
     Sidecar_Manager -->|Stream Audio Chunks| Whisper_Sidecar
     Whisper_Weights -.->|mmap Model Weights| Whisper_Sidecar
     Whisper_Sidecar --> CoreML_Engine
     Whisper_Sidecar --> DirectML_Engine
-    Whisper_Sidecar -->|stdout Raw Tokens| Token_Classifier
+    Whisper_Sidecar -->|stdout Tokens with Metadata| Token_Classifier
 
-    %% Internal Token Dispatch
-    Token_Classifier -->|Emit: token-stream payload| IPC_Bridge
+    %% Internal Token Dispatch with Source Diarization
+    Token_Classifier -->|Emit: token-stream payload (source: mic or window)| IPC_Bridge
     IPC_Bridge --> Transcript_Stream
 
     %% Broadcasting Dispatch
-    Token_Classifier -->|Broadcast Payload| WS_Server
+    Token_Classifier -->|Broadcast Diarized Payload| WS_Server
     WS_Server -->|Local WebSocket Stream| OBS_Client
     WS_Server -->|LAN WebSocket Stream| Mobile_Audience
     LAN_Resolver -->|IP URL QR Code| QR_Modal
@@ -151,39 +165,46 @@ graph TB
 
 ## 3. End-to-End Data Flow & Lifecycle State Machine
 
-The runtime supports two discrete execution paths: (1) Standard Push-to-Talk / Dictation with VAD boundary slicing, and (2) Continuous Live Event Streaming with sliding windows and LAN distribution.
+The runtime supports multi-channel audio capture, PID-level target isolation, and zero-latency source diarization alongside continuous live event streaming.
 
 ```mermaid
 sequenceDiagram
     autonumber
-    participant HostOS as OS Audio / Hotkey
+    participant HostOS as OS / Active Apps (Zoom, Teams)
     participant Rust as Tauri Rust Backend
-    participant Whisper as whisper.cpp (Stream Mode)
+    participant Whisper as whisper.cpp Sidecar
     participant DesktopUI as React Desktop App
     participant Broadcaster as WebSocket & HTTP Server
     participant Audience as OBS / Mobile Audience
 
-    Note over HostOS,Audience: Phase A: Audio Ingestion & Source Selection
-    HostOS->>Rust: Capture Audio (Mic or WASAPI/ScreenCaptureKit System Audio)
-    Rust->>Rust: Write 16kHz PCM to Lock-Free Circular Ring Buffer
+    Note over HostOS,Audience: Phase A: Target Lock & Dual Ingestion
+    DesktopUI->>Rust: Invoke get_active_windows()
+    Rust-->>DesktopUI: Return active window list (titles and PIDs)
+    DesktopUI->>Rust: User selects target (e.g. Zoom PID 4210)
+    Rust->>HostOS: Hook ScreenCaptureKit / App Loopback to PID
+    HostOS->>Rust: Stream Remote Audio into buffer_remote
+    HostOS->>Rust: Stream Local Microphone into buffer_local
 
-    Note over HostOS,Audience: Phase B: Continuous Sliding-Window Inference
-    loop Every 500ms Sliding Window (3s Duration)
-        Rust->>Whisper: Pipe 3-Second Overlapping Audio Frame
+    Note over HostOS,Audience: Phase B: Dual-Channel Sliding Window & Diarization
+    loop Every 500ms Sliding Window
+        Rust->>Whisper: Feed buffer_local with tag [SRC_MIC]
+        Rust->>Whisper: Feed buffer_remote with tag [SRC_WIN]
         Whisper->>Whisper: CoreML / DirectML Inference
-        Whisper-->>Rust: Stream stdout Tokens
-        Rust->>Rust: Token Classifier parses PARTIAL vs. FINAL text
-        Rust->>DesktopUI: Emit Token Event (partial or final text)
-        DesktopUI->>DesktopUI: Render Real-Time "Typing" Transition
-        Rust->>Broadcaster: Forward JSON Payload to Connected Sockets
-        Broadcaster-->>Audience: Stream Live JSON to OBS & LAN Mobile Devices
-        Audience->>Audience: Instant Dynamic Subtitle Paint
+        Whisper-->>Rust: Stream stdout Tokens with Source Tags
+        Rust->>DesktopUI: Emit Token Event (type, text, source)
+        alt source is mic
+            DesktopUI->>DesktopUI: Render in text-blue-400 (Local Speaker)
+        else source is window
+            DesktopUI->>DesktopUI: Render in text-green-400 (Remote Speaker)
+        end
+        Rust->>Broadcaster: Forward Diarized JSON to Connected Sockets
+        Broadcaster-->>Audience: Stream Live Diarized Captions to OBS & Mobile
     end
 
     Note over HostOS,Audience: Phase C: Grammar Cleanup & Export
-    DesktopUI->>Rust: Trigger "Clean Up" Request
-    Rust->>Rust: Run Local Qwen2.5-0.5B or Groq Low-Latency Engine
-    Rust-->>DesktopUI: Render Punctuated, Polished Text
+    DesktopUI->>Rust: Trigger Clean Up Request
+    Rust->>Rust: Run Local Qwen2.5-0.5B or Groq Engine preserving Speaker Tags
+    Rust-->>DesktopUI: Render Formatted Speaker-Diarized Transcript
     DesktopUI->>HostOS: Copy to Clipboard
 ```
 
@@ -198,18 +219,18 @@ sequenceDiagram
 ### 4.2 Frontend Architecture
 * **View Layer:** React 18 with TypeScript.
 * **Routing:** Dual-view architecture:
-  * Primary View (`/`): Frameless, glassmorphic floating controller and transcription widget.
+  * Primary View (`/`): Frameless, glassmorphic floating controller, target window dropdown, and color-coded diarized transcript panel.
   * Broadcast View (`/broadcast`): Transparent overlay view (`rgba(0,0,0,0)`) designed for OBS Studio Browser Sources and mobile responsive rendering.
-* **Styling Engine:** Tailwind CSS configured with custom backdrop-filter and HSL-based alpha-channel extensions.
+* **Styling Engine:** Tailwind CSS configured with custom backdrop-filter and dynamic source color classes (`text-blue-400` for local speaker, `text-green-400` for remote meeting participants).
 * **Animation Suite:** Framer Motion for hardware-accelerated micro-interactions, layout transitions, and pulsating audio meters.
 * **Component Primitives:** Radix UI unstyled accessibility primitives.
 
-### 4.3 Audio Capture, Loopback & Activity Detection
-* **Microphone Input:** `cpal` (Cross-Platform Audio Library) capturing 16,000 Hz, 16-bit, mono channel PCM streams.
-* **macOS System Audio:** Native `ScreenCaptureKit` bindings via Rust, enabling direct application and system audio capture without requiring virtual drivers (e.g., BlackHole).
-* **Windows System Audio:** `cpal` configured with WASAPI loopback mode (`AUDCLNT_STREAMFLAGS_LOOPBACK`), capturing audio output without third-party virtual audio cables.
-* **Buffer Management:** Thread-safe, lock-free ring buffer maintaining rolling audio windows.
-* **VAD Engine:** Silero VAD packaged in ONNX format (~2MB), executed via `ort` (ONNX Runtime bindings for Rust). Slices speech into discrete boundaries for dictation mode.
+### 4.3 Audio Capture, Target Lock & Activity Detection
+* **Microphone Input:** `cpal` (Cross-Platform Audio Library) capturing 16,000 Hz, 16-bit, mono channel PCM streams into `buffer_local`.
+* **Process-Specific Target Lock (macOS):** Native `ScreenCaptureKit` bindings via Rust, filtering audio capture exclusively to an explicit `SCWindow` or `SCRunningApplication` instance based on PID.
+* **Process-Specific Target Lock (Windows):** Windows Application Loopback API via modern WASAPI activation targeting an individual process tree (e.g., isolating `Zoom.exe` or `Teams.exe`), eliminating ambient system dings and notification chimes.
+* **Dual Ring Buffers:** Independent circular ring buffers (`buffer_local` and `buffer_remote`) preventing channel bleeding.
+* **VAD Engine:** Silero VAD packaged in ONNX format (~2MB), executed via `ort` (ONNX Runtime bindings for Rust) monitoring both channels independently.
 * **Continuous Streamer:** 3-second sliding window processor with 500ms step increments for unbroken live event broadcasting.
 
 ### 4.4 Speech-to-Text Engine
@@ -228,7 +249,7 @@ sequenceDiagram
 ### 4.6 Grammar Correction & Post-Processing
 * **Primary (Local Execution):** `llama.cpp` sidecar executing Qwen2.5-0.5B-Instruct in 4-bit quantization (Q4_K_M).
 * **Secondary (Low-Storage Compliance):** High-speed fallback API (Groq running Llama-3.1-8B-Instant) for environments demanding strict under-200MB total disk boundaries where local LLM weights cannot be stored.
-* **Operations:** Disfluency and filler word removal ("um", "uh", "like"), punctuation restoration, casing correction, and context-aware sentence restructuring.
+* **Operations:** Disfluency and filler word removal, punctuation restoration, casing correction, and context-aware sentence restructuring while preserving speaker separation metadata.
 
 ### 4.7 Product Web Asset
 * **Framework:** Next.js 14 (App Router) with static export capability (`output: export`).
@@ -238,7 +259,7 @@ sequenceDiagram
 
 ## 5. Memory, Storage & Latency Budget
 
-To strictly honor the 200MB total distribution limit while providing real-time responsiveness and live broadcasting, assets and resources are allocated according to the matrix below:
+To strictly honor the 200MB total distribution limit while providing real-time responsiveness, target-locking, and live broadcasting, assets and resources are allocated according to the matrix below:
 
 | Component | Storage Size | Runtime Memory (RAM) | Primary Execution Target |
 | :--- | :--- | :--- | :--- |
@@ -248,11 +269,10 @@ To strictly honor the 200MB total distribution limit while providing real-time r
 | Silero VAD ONNX Model | 1.8 MB | 10 MB | CPU / ONNX Runtime |
 | Whisper `tiny.en` Model (GGUF) | 75.0 MB | 110 MB | Apple Neural Engine / DirectML |
 | Dynamic Libraries (CoreML / ONNX / DirectML) | 45.0 MB | Shared Virtual Mem | OS Dynamic Linker |
+| Dual Buffer & PID Stream Router | Included in host | 8 MB - 12 MB | Transient Memory Pool |
 | WebSocket & Embedded Server Runtime | Included in host | 4 MB - 8 MB | Async Tokio Pool |
 | Application Config & Caches | < 1.0 MB | < 2 MB | Local Storage |
-| **Total Core Configuration** | **~143.2 MB** | **~170 MB - 210 MB** | **Sub-200MB Target Met** |
-
-*Note: For deployments utilizing the optional local grammar correction model (Qwen2.5-0.5B at ~350MB), the application features an on-demand model downloader. For strict zero-download distribution under 200MB, the default configuration utilizes Whisper `tiny.en` paired with the low-latency API endpoint for grammar cleanup.*
+| **Total Core Configuration** | **~143.2 MB** | **~180 MB - 225 MB** | **Sub-200MB Target Met** |
 
 ---
 
@@ -278,18 +298,21 @@ LiveSpeak/
 |   |   |   |   |-- BroadcastView.tsx     # Transparent OBS / Mobile receiver
 |   |   |   |-- components/
 |   |   |   |   |-- GlassContainer.tsx    # Frameless floating shell
-|   |   |   |   |-- AudioSourceToggle.tsx # Mic vs. System Audio switch
+|   |   |   |   |-- TargetDropdown.tsx    # Active window / PID selector
+|   |   |   |   |-- AudioSourceToggle.tsx # Mic vs. Target vs. System Audio
 |   |   |   |   |-- RecordButton.tsx      # Reactive pulse trigger
-|   |   |   |   |-- AudioVisualizer.tsx   # Framer Motion soundwave
-|   |   |   |   |-- StreamingTranscript.tsx # Dual partial/final token renderer
+|   |   |   |   |-- AudioVisualizer.tsx   # Dual-channel soundwave
+|   |   |   |   |-- DiarizedTranscript.tsx # Color-coded speaker transcript
 |   |   |   |   |-- ActionToolbar.tsx     # Clean up, clipboard & broadcast
 |   |   |   |   |-- QRCodeModal.tsx       # Live event LAN connection QR
 |   |   |   |-- hooks/
 |   |   |   |   |-- useAudioCapture.ts
+|   |   |   |   |-- useActiveWindows.ts   # Queries get_active_windows
 |   |   |   |   |-- useTauriEvents.ts
 |   |   |   |   |-- useBroadcastSocket.ts
 |   |   |   |-- types/
-|   |   |       |-- transcript.ts
+|   |   |       |-- transcript.ts         # { type, text, source: 'mic' | 'window' }
+|   |   |       |-- window.ts             # { window_name, process_id }
 |   |   |-- src-tauri/                    # Rust Native Host
 |   |       |-- Cargo.toml
 |   |       |-- tauri.conf.json           # Window transparency & sidecars
@@ -306,11 +329,12 @@ LiveSpeak/
 |   |           |-- audio/
 |   |           |   |-- mod.rs
 |   |           |   |-- capture.rs        # CPAL input stream manager
-|   |           |   |-- loopback_win.rs   # Windows WASAPI loopback capture
-|   |           |   |-- screencapture_mac.rs # macOS ScreenCaptureKit bridge
-|   |           |   |-- ring_buffer.rs    # Circular lock-free buffer
+|   |           |   |-- target_mac.rs     # ScreenCaptureKit PID filter
+|   |           |   |-- target_win.rs     # Windows Application Loopback PID
+|   |           |   |-- loopback_win.rs   # Global WASAPI loopback
+|   |           |   |-- dual_buffer.rs    # buffer_local & buffer_remote ring buffers
 |   |           |   |-- sliding_window.rs # 3s continuous sliding window
-|   |           |   |-- vad.rs            # Silero ONNX evaluation
+|   |           |   |-- vad.rs            # Silero ONNX dual evaluation
 |   |           |   |-- wav.rs            # Memory WAV serialization
 |   |           |-- broadcast/
 |   |           |   |-- mod.rs
@@ -318,13 +342,14 @@ LiveSpeak/
 |   |           |   |-- qr.rs             # LAN IP detection & QR generator
 |   |           |-- engine/
 |   |           |   |-- sidecar.rs        # Subprocess lifecycle & stdout
-|   |           |   |-- parser.rs         # [PARTIAL] vs [FINAL] token classifier
+|   |           |   |-- parser.rs         # Token & source metadata classifier
 |   |           |   |-- grammar.rs        # Text post-processing router
 |   |           |-- commands/
-|   |           |   |-- recording.rs      # Audio start/stop & source toggle
+|   |           |   |-- windows.rs        # get_active_windows implementation
+|   |           |   |-- recording.rs      # Audio start/stop & target selection
 |   |           |   |-- broadcast.rs      # Live event broadcast triggers
 |   |           |   |-- clipboard.rs
-|   |           |-- state.rs              # AppState, broadcast channels & flags
+|   |           |-- state.rs              # AppState, dual channels & PID targets
 |   |-- web/                              # Product Marketing Asset
 |       |-- package.json
 |       |-- next.config.mjs
@@ -396,7 +421,7 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
 ### 7.3 Grammar Cleanup Pipeline
 * The "Clean Up" module accepts the raw transcription string and executes a targeted prompt:
   ```
-  [INST] System: You are an expert speech editor. Remove speech disfluencies, filler words (um, uh, like), fix punctuation, and correct casing. Retain original vocabulary and intent without editorial commentary.
+  [INST] System: You are an expert speech editor. Remove speech disfluencies, filler words (um, uh, like), fix punctuation, and correct casing while preserving speaker tags. Retain original vocabulary and intent without editorial commentary.
   Raw: {RAW_TRANSCRIPTION}
   Cleaned: [/INST]
   ```
@@ -432,7 +457,29 @@ To handle large-scale live events, LiveSpeak transcends standard push-to-talk di
 
 ---
 
-## 9. Step-by-Step AI Execution Plan
+## 9. Targeted Capture & Source-Aware Diarization Architecture
+
+### 9.1 App-Specific Audio Capture (The "Target Lock" Feature)
+* **The Problem:** Capturing global system audio means every background Slack notification chime, OS error ding, or ambient YouTube video gets mixed into the audio pipeline, triggering hallucinated words and polluting meeting transcripts.
+* **The Solution:** Process ID (PID) level audio isolation that locks strictly onto the chosen application:
+  * **macOS Implementation:** Leverages Apple's `ScreenCaptureKit` framework, which natively supports filtering audio captures to an exact `SCRunningApplication` or `SCWindow` descriptor. Audio from unselected apps is discarded at the OS level before reaching the application buffer.
+  * **Windows Implementation:** Utilizes the Windows Application Loopback API (via `AUDCLNT_STREAMFLAGS_AUTOCONVERTPCM` and `ActivateAudioInterfaceAsync` targeting a specific process ID). Audio is captured exclusively from the selected process tree (e.g., isolating `Zoom.exe` or `Teams.exe`).
+  * **UI & Workflow Integration:** The React interface provides a "Select Target" dropdown. The user triggers target selection, Rust queries active windows via `get_active_windows()`, and the user binds LiveSpeak directly to the target meeting window.
+
+### 9.2 Source-Aware Diarization (Zero-Latency Color Coding)
+* **The Problem:** Traditional speaker diarization frameworks (e.g., Pyannote) require heavy neural models (adding 150MB+ to binary footprints, violating our 200MB limit) and introduce noticeable latency by analyzing voice acoustic embeddings before emitting text.
+* **The Solution:** Zero-overhead, zero-latency Source-Based Diarization:
+  * **Stream Isolation:** LiveSpeak already controls audio ingestion at the OS boundary. The local microphone audio (`Stream A`) is guaranteed to be the local user. The targeted meeting window audio (`Stream B`) is guaranteed to be the remote participants.
+  * **Dual Isolated Channels:** Audio is maintained in two distinct buffers (`buffer_local` and `buffer_remote`) rather than being mixed into a single mono track.
+  * **Metadata Tagging:** When speech chunks are dispatched to the `whisper.cpp` sidecar, they carry their source channel tag (`SRC_MIC` vs. `SRC_WIN`).
+  * **Dynamic UI Rendering:**
+    * Local Speaker (`source === "mic"`): Styled with Tailwind class `text-blue-400`.
+    * Remote Speaker (`source === "window"`): Styled with Tailwind class `text-green-400`.
+  * **Result:** Instant, 100% deterministic speaker separation with zero additional model weights and zero latency penalty.
+
+---
+
+## 10. Step-by-Step AI Execution Plan
 
 ### Phase 1: Environment & Framework Initialization
 * Scaffold the Tauri v2 monorepo using React and TypeScript templates.
@@ -442,7 +489,7 @@ To handle large-scale live events, LiveSpeak transcends standard push-to-talk di
 
 ### Phase 2: Global State & OS Integration
 * Integrate `@tauri-apps/plugin-global-shortcut` and configure standard OS triggers (`Cmd+Shift+Space` on macOS, `Ctrl+Shift+Space` on Windows).
-* Create an atomic state struct in Rust to guard recording lifecycle flags (`is_recording`, `is_processing`, `audio_source`).
+* Create an atomic state struct in Rust to guard recording lifecycle flags (`is_recording`, `is_processing`, `audio_source`, `target_pid`).
 * Implement bidirectional state synchronizers: Rust shortcuts emit events to React; UI clicks dispatch commands to Rust.
 * Configure window drag handlers via `data-tauri-drag-region` to allow free screen positioning.
 
@@ -467,7 +514,7 @@ To handle large-scale live events, LiveSpeak transcends standard push-to-talk di
 * Implement the execution provider:
   * Route A: Direct execution through `llama.cpp` sidecar with quantized `Qwen2.5-0.5B`.
   * Route B: Zero-local-overhead execution via high-speed Groq API client with sub-250ms response times.
-* Replace raw text in the UI with cleaned content and bind the "Copy" action to the system clipboard via `@tauri-apps/plugin-clipboard-manager`.
+* Replace raw text in the UI with cleaned content while preserving speaker markers, binding the "Copy" action to the system clipboard via `@tauri-apps/plugin-clipboard-manager`.
 
 ### Phase 6: Product Landing Page (Next.js 14 App Router)
 * Initialize the static marketing asset under `apps/web/`.
@@ -482,20 +529,31 @@ To handle large-scale live events, LiveSpeak transcends standard push-to-talk di
 * Add an audio source selector toggle in the React UI: "Mic Input" vs. "System Audio".
 
 ### Phase 8: Streaming Token UI Implementation
-* Modify the Tauri event listener in React to parse typed payload objects: `{ type: "partial" | "final", text: string }`.
+* Modify the Tauri event listener in React to parse typed payload objects: `{ type: "partial" | "final", text: string, source: "mic" | "window" }`.
 * Build a rendering component that commits `[FINAL]` tokens to solid text blocks.
 * Append the active `[PARTIAL]` string to the active block with distinct transitional styling (opacity 0.5, italicized, fast transition) to create the sub-second live typing effect.
 
 ### Phase 9: WebSocket Broadcaster & QR Code Generation
-* Embed a `tokio-tungstenite` asynchronous WebSocket server in the Rust runtime broadcasting `{ type, text }` payloads.
+* Embed a `tokio-tungstenite` asynchronous WebSocket server in the Rust runtime broadcasting `{ type, text, source }` payloads.
 * Build the `/broadcast` route in React featuring a transparent background (`rgba(0, 0, 0, 0)`) for direct embedding into OBS Studio Browser Sources.
 * Implement LAN IP resolution (e.g., `192.168.1.X`) and QR code SVG generation in Rust, rendering a scannable overlay modal when "Start Live Event Mode" is triggered.
 
+### Phase 10: Process-Level Audio Isolation (Target Lock)
+* Implement the Rust command `get_active_windows()` querying native OS APIs (CoreGraphics/WindowServer on macOS, Win32 `EnumWindows` on Windows) returning a list of `{ window_name: string, process_id: number }`.
+* Build a dropdown selector in the React UI to list and search active windows.
+* Update audio capture logic: When a `process_id` is passed, initialize `ScreenCaptureKit` (macOS) or Application Loopback (Windows) attached strictly to that PID, ignoring ambient desktop noise.
+
+### Phase 11: Multi-Threaded Audio Routing for Color-Coding
+* Configure the audio subsystem to maintain two isolated channels: `buffer_local` for microphone audio and `buffer_remote` for target window audio.
+* Run Silero VAD monitoring concurrently across both buffers.
+* Attach metadata markers (`SRC_MIC` and `SRC_WIN`) to audio segments dispatched to `whisper.cpp`.
+* Update frontend state to render `source: "mic"` in `text-blue-400` (Local Speaker) and `source: "window"` in `text-green-400` (Remote Speaker).
+
 ---
 
-## 10. Compilation & Build Matrix
+## 11. Compilation & Build Matrix
 
-### 10.1 Compiling whisper.cpp Sidecars
+### 11.1 Compiling whisper.cpp Sidecars
 
 #### macOS (Apple Silicon M-Series with CoreML)
 ```bash
@@ -524,7 +582,7 @@ cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
 Copy-Item build\bin\Release\whisper-cli.exe ..\src-tauri\bin\whisper-sidecar-x86_64-pc-windows-msvc.exe
 ```
 
-### 10.2 Building the Desktop Application
+### 11.2 Building the Desktop Application
 ```bash
 # Install root workspace dependencies
 pnpm install
@@ -538,7 +596,7 @@ pnpm --filter desktop tauri build
 
 ---
 
-## 11. Privacy, Security & Air-Gap Compliance
+## 12. Privacy, Security & Air-Gap Compliance
 
 LiveSpeak is architected from first principles to be completely secure and self-contained:
 * **Zero Socket Outbound Traffic:** In standard mode, the core application opens zero external TCP or UDP sockets.
@@ -549,9 +607,11 @@ LiveSpeak is architected from first principles to be completely secure and self-
 
 ---
 
-## 12. Verification & Acceptance Criteria
+## 13. Verification & Acceptance Criteria
 
 * **Storage Footprint:** Combined unpacked size of application bundle, whisper sidecar, and `tiny.en` model must not exceed 200MB.
+* **Target Isolation Accuracy:** Audio captured in Target Lock mode must strictly contain the target process output with zero leakage from background applications.
+* **Diarization Latency:** Speaker color coding (`text-blue-400` vs `text-green-400`) must be assigned immediately at token emission with zero biometric processing overhead.
 * **Latency Benchmark:** Partial streaming tokens must appear in the UI within 350 milliseconds of vocalization; final sentence tokens within 800 milliseconds.
 * **Cold Start Time:** Initial application launch to listening readiness must complete in under 1.5 seconds.
 * **Resource Idle Consumption:** In standby mode, CPU consumption must remain below 0.2% and RAM usage below 45MB.
