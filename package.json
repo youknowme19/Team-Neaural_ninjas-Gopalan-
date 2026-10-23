@@ -1,14 +1,11 @@
 {
-  "name": "livespeak",
-  "version": "0.1.0",
+  "name": "livespeak-workspace",
   "private": true,
   "workspaces": [
     "apps/*"
   ],
   "scripts": {
-    "dev:desktop": "npm --prefix apps/desktop run tauri dev",
-    "build:desktop": "npm --prefix apps/desktop run tauri build",
-    "dev:web": "npm --prefix apps/web run dev",
-    "build:web": "npm --prefix apps/web run build"
+    "dev": "pnpm --filter desktop dev",
+    "build": "pnpm --filter desktop build"
   }
 }

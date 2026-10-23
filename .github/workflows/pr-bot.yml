@@ -152,11 +152,11 @@ jobs:
             const rustStepStatus = "${{ steps.verify-rust.outcome }}";
 
             const formatStatus = (changed, stepOutcome) => {
-              if (!changed) return "⚪ _Not modified (Skipped)_";
-              if (stepOutcome === "success") return "🟢 **Passing**";
-              if (stepOutcome === "failure") return "🔴 **Failed**";
-              if (stepOutcome === "cancelled") return "🟡 **Cancelled**";
-              return "⏳ **In progress / Unknown**";
+              if (!changed) return " _Not modified (Skipped)_";
+              if (stepOutcome === "success") return " **Passing**";
+              if (stepOutcome === "failure") return " **Failed**";
+              if (stepOutcome === "cancelled") return " **Cancelled**";
+              return " **In progress / Unknown**";
             };
 
             const webStatusText = formatStatus(webChanged, webStepStatus);
@@ -168,11 +168,11 @@ jobs:
             const deletions = pr.deletions || 0;
             const totalChanges = additions + deletions;
             let sizeLabel = "size: XS";
-            let sizeEmoji = "🌱";
-            if (totalChanges > 1000) { sizeLabel = "size: XL"; sizeEmoji = "🐘"; }
-            else if (totalChanges > 500) { sizeLabel = "size: L"; sizeEmoji = "📦"; }
-            else if (totalChanges > 200) { sizeLabel = "size: M"; sizeEmoji = "⚖️"; }
-            else if (totalChanges > 50) { sizeLabel = "size: S"; sizeEmoji = "🌿"; }
+            let sizeEmoji = "";
+            if (totalChanges > 1000) { sizeLabel = "size: XL"; sizeEmoji = ""; }
+            else if (totalChanges > 500) { sizeLabel = "size: L"; sizeEmoji = ""; }
+            else if (totalChanges > 200) { sizeLabel = "size: M"; sizeEmoji = "️"; }
+            else if (totalChanges > 50) { sizeLabel = "size: S"; sizeEmoji = ""; }
 
             // Apply Labels Automatically
             const labelsToAdd = [sizeLabel];
@@ -199,24 +199,24 @@ jobs:
 
             const commentBody = [
               botMarker,
-              `## 🤖 LiveSpeak PR Preview & Health Monitor`,
+              `##  LiveSpeak PR Preview & Health Monitor`,
               ``,
               `> Monitored commit [\`${headSha}\`](${pr.html_url}/commits/${pr.head.sha}) on branch \`${branchName}\` (targeting \`${baseBranch}\`) by @${author}.`,
               `> **Last Updated:** ${timestamp}`,
               ``,
-              `### 📊 Verification & Build Matrix`,
+              `###  Verification & Build Matrix`,
               `| Target Component | Impacted? | Status | Details |`,
               `| :--- | :---: | :---: | :--- |`,
-              `| 🌐 **Web App** (\`apps/web\`) | ${webChanged ? "✅ Yes" : "—"} | ${webStatusText} | Next.js 14 / SSR |`,
-              `| 🖥️ **Desktop UI** (\`apps/desktop\`) | ${desktopChanged ? "✅ Yes" : "—"} | ${desktopStatusText} | React + Vite + Tailwind |`,
-              `| ⚙️ **Rust Core & Tauri** (\`src-tauri\`) | ${rustChanged ? "✅ Yes" : "—"} | ${rustStatusText} | Audio, VAD & Tungstenite Engine |`,
-              `| 📜 **Config & Scripts** | ${scriptsChanged ? "✅ Yes" : "—"} | ${scriptsChanged ? "⚠️ Review needed" : "Clean"} | Build sidecars & models |`,
+              `|  **Web App** (\`apps/web\`) | ${webChanged ? " Yes" : "—"} | ${webStatusText} | Next.js 14 / SSR |`,
+              `| ️ **Desktop UI** (\`apps/desktop\`) | ${desktopChanged ? " Yes" : "—"} | ${desktopStatusText} | React + Vite + Tailwind |`,
+              `| ️ **Rust Core & Tauri** (\`src-tauri\`) | ${rustChanged ? " Yes" : "—"} | ${rustStatusText} | Audio, VAD & Tungstenite Engine |`,
+              `|  **Config & Scripts** | ${scriptsChanged ? " Yes" : "—"} | ${scriptsChanged ? "️ Review needed" : "Clean"} | Build sidecars & models |`,
               ``,
               `**Diff Metrics:** ${sizeEmoji} \`${diffStats}\` (Categorized as \`${sizeLabel}\`)`,
               ``,
               `---`,
               ``,
-              `### 🔍 Preview & Local Testing Guide`,
+              `###  Preview & Local Testing Guide`,
               `To test and preview these changes locally, run the following in your terminal:`,
               ``,
               `\`\`\`bash`,
@@ -241,7 +241,7 @@ jobs:
               ``,
               `---`,
               ``,
-              `### 📋 Reviewer Quality Checklist`,
+              `###  Reviewer Quality Checklist`,
               `- [ ] **Visual Preview**: Verified UI layout, animations, and color scheme.`,
               `- [ ] **Audio Capture**: Tested mic buffer & process loopback routing (if applicable).`,
               `- [ ] **WebSocket Broadcast**: Tested \`/broadcast\` transparent view & QR code generation.`,

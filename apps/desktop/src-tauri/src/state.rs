@@ -1,44 +1,60 @@
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
+use tokio::sync::broadcast;
 use serde::{Deserialize, Serialize};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
-use tokio::sync::Mutex;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
-#[serde(rename_all = "lowercase")]
-pub enum AudioSource {
+#[serde(rename_all = "snake_case")]
+pub enum AudioSourceMode {
     Mic,
-    Window,
-    System,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct ActiveWindow {
-    pub process_id: u32,
-    pub window_name: String,
-    pub app_name: String,
+    TargetWindow,
+    SystemAudio,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TokenPayload {
-    pub token_type: String, // "PARTIAL" or "FINAL"
+    #[serde(rename = "type")]
+    pub token_type: String, // "partial" or "final"
     pub text: String,
     pub source: String,     // "mic" or "window"
+    pub timestamp_ms: u64,
 }
 
 pub struct AppState {
     pub is_recording: Arc<AtomicBool>,
-    pub current_source: Arc<Mutex<AudioSource>>,
-    pub target_pid: Arc<Mutex<Option<u32>>>,
-    pub live_event_active: Arc<AtomicBool>,
+    pub is_broadcasting: Arc<AtomicBool>,
+    pub current_source: Arc<Mutex<AudioSourceMode>>,
+    pub target_pid: Arc<Mutex<Option<i32>>>,
+    pub broadcast_channel: broadcast::Sender<TokenPayload>,
 }
 
 impl AppState {
     pub fn new() -> Self {
+        let (tx, _rx) = broadcast::channel(128);
         Self {
             is_recording: Arc::new(AtomicBool::new(false)),
-            current_source: Arc::new(Mutex::new(AudioSource::Mic)),
+            is_broadcasting: Arc::new(AtomicBool::new(false)),
+            current_source: Arc::new(Mutex::new(AudioSourceMode::Mic)),
             target_pid: Arc::new(Mutex::new(None)),
-            live_event_active: Arc::new(AtomicBool::new(false)),
+            broadcast_channel: tx,
         }
+    }
+
+    pub fn set_recording(&self, active: bool) {
+        self.is_recording.store(active, Ordering::SeqCst);
+    }
+
+    pub fn is_recording(&self) -> bool {
+        self.is_recording.load(Ordering::SeqCst)
+    }
+
+    pub fn set_broadcasting(&self, active: bool) {
+        self.is_broadcasting.store(active, Ordering::SeqCst);
+    }
+
+    pub fn is_broadcasting(&self) -> bool {
+        self.is_broadcasting.load(Ordering::SeqCst)
     }
 }

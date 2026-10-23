@@ -1,17 +1,16 @@
-export type AudioSourceType = 'mic' | 'window' | 'system';
+export type TokenSource = "mic" | "window";
+export type TokenType = "partial" | "final";
 
-export type TokenType = 'PARTIAL' | 'FINAL';
-
-export interface TranscriptItem {
-  id: string;
+export interface TokenPayload {
   type: TokenType;
   text: string;
-  source: 'mic' | 'window';
-  timestamp: number;
+  source: TokenSource;
+  timestamp_ms: number;
 }
 
-export interface StreamTokenPayload {
-  token_type: TokenType;
+export interface TranscriptSentence {
+  id: string;
   text: string;
-  source: 'mic' | 'window';
+  source: TokenSource;
+  timestamp: number;
 }

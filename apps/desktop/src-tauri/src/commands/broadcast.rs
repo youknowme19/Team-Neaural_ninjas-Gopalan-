@@ -1,18 +1,29 @@
-use crate::broadcast::qr::generate_qr_data_url;
-use local_ip_address::local_ip;
-use serde::Serialize;
+use std::sync::Arc;
+use tauri::State;
+use crate::broadcast::qr::{generate_broadcast_qr, QrCodeResponse};
+use crate::broadcast::websocket::start_websocket_server;
+use crate::state::AppState;
 
-#[derive(Serialize)]
-pub struct BroadcastInfo {
-    pub url: String,
-    pub qr_data_url: String,
+#[tauri::command]
+pub async fn start_broadcast(state: State<'_, Arc<AppState>>) -> Result<QrCodeResponse, String> {
+    if !state.is_broadcasting() {
+        state.set_broadcasting(true);
+        let state_clone = (*state).clone();
+        tokio::spawn(async move {
+            start_websocket_server(state_clone, 8080).await;
+        });
+    }
+
+    generate_broadcast_qr(8080)
 }
 
 #[tauri::command]
-pub fn get_broadcast_info() -> Result<BroadcastInfo, String> {
-    let ip = local_ip().map_err(|e| e.to_string())?;
-    let url = format!("http://{}:8080/broadcast", ip);
-    let qr_data_url = generate_qr_data_url(&url)?;
+pub fn stop_broadcast(state: State<'_, Arc<AppState>>) -> Result<bool, String> {
+    state.set_broadcasting(false);
+    Ok(false)
+}
 
-    Ok(BroadcastInfo { url, qr_data_url })
+#[tauri::command]
+pub fn get_broadcast_qr() -> Result<QrCodeResponse, String> {
+    generate_broadcast_qr(8080)
 }

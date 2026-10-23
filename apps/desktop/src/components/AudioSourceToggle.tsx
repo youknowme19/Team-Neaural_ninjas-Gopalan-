@@ -1,19 +1,26 @@
-import React from 'react';
-import { Mic, Radio, Volume2 } from 'lucide-react';
-import { AudioSourceType } from '../types/transcript';
+import React from "react";
+import { Mic, AppWindow, Volume2 } from "lucide-react";
 
 interface AudioSourceToggleProps {
-  source: AudioSourceType;
-  onChange: (source: AudioSourceType) => void;
+  source: "mic" | "target" | "system";
+  onChange: (source: "mic" | "target" | "system") => void;
+  disabled?: boolean;
 }
 
-export const AudioSourceToggle: React.FC<AudioSourceToggleProps> = ({ source, onChange }) => {
+export const AudioSourceToggle: React.FC<AudioSourceToggleProps> = ({
+  source,
+  onChange,
+  disabled,
+}) => {
   return (
-    <div className="flex items-center bg-white/5 border border-white/10 rounded-lg p-1 space-x-1">
+    <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 gap-1 no-drag">
       <button
-        onClick={() => onChange('mic')}
-        className={`flex-1 flex items-center justify-center space-x-1.5 py-1 px-2 rounded-md text-xs font-medium transition-all ${
-          source === 'mic' ? 'bg-blue-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+        onClick={() => onChange("mic")}
+        disabled={disabled}
+        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+          source === "mic"
+            ? "bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm"
+            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
         }`}
       >
         <Mic className="w-3.5 h-3.5" />
@@ -21,23 +28,29 @@ export const AudioSourceToggle: React.FC<AudioSourceToggleProps> = ({ source, on
       </button>
 
       <button
-        onClick={() => onChange('window')}
-        className={`flex-1 flex items-center justify-center space-x-1.5 py-1 px-2 rounded-md text-xs font-medium transition-all ${
-          source === 'window' ? 'bg-emerald-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+        onClick={() => onChange("target")}
+        disabled={disabled}
+        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+          source === "target"
+            ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 shadow-sm"
+            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
         }`}
       >
-        <Volume2 className="w-3.5 h-3.5" />
-        <span>Target</span>
+        <AppWindow className="w-3.5 h-3.5" />
+        <span>Target Lock</span>
       </button>
 
       <button
-        onClick={() => onChange('system')}
-        className={`flex-1 flex items-center justify-center space-x-1.5 py-1 px-2 rounded-md text-xs font-medium transition-all ${
-          source === 'system' ? 'bg-indigo-600 text-white shadow' : 'text-slate-400 hover:text-slate-200'
+        onClick={() => onChange("system")}
+        disabled={disabled}
+        className={`flex-1 py-1.5 px-2 rounded-lg text-xs font-medium flex items-center justify-center gap-1.5 transition-all ${
+          source === "system"
+            ? "bg-purple-500/20 text-purple-300 border border-purple-500/30 shadow-sm"
+            : "text-slate-400 hover:text-slate-200 hover:bg-white/5"
         }`}
       >
-        <Radio className="w-3.5 h-3.5" />
-        <span>Both (Dual)</span>
+        <Volume2 className="w-3.5 h-3.5" />
+        <span>System</span>
       </button>
     </div>
   );

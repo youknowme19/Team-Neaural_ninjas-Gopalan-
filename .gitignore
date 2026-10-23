@@ -5,7 +5,8 @@
 .Trashes
 
 # Node / Web dependencies
-node_modules/
+node_modules
+**/node_modules
 .next/
 out/
 dist/
@@ -19,6 +20,9 @@ src-tauri/target/
 *.bin
 *.gguf
 !models/*.gitkeep
+whisper.cpp/
+apps/desktop/src-tauri/bin/*.dylib
+apps/desktop/src-tauri/bin/whisper*
 
 # Environment variables
 .env

@@ -1,29 +1,64 @@
-import React from 'react';
+import React from "react";
+import { getCurrentWindow } from "@tauri-apps/api/window";
 
 interface GlassContainerProps {
   children: React.ReactNode;
-  className?: string;
+  isRecording: boolean;
 }
 
-export const GlassContainer: React.FC<GlassContainerProps> = ({ children, className = '' }) => {
+export const GlassContainer: React.FC<GlassContainerProps> = ({ children, isRecording }) => {
+  const handleMinimize = () => {
+    try {
+      getCurrentWindow().minimize();
+    } catch {}
+  };
+
+  const handleClose = () => {
+    try {
+      getCurrentWindow().close();
+    } catch {}
+  };
+
   return (
-    <div
-      data-tauri-drag-region
-      className={`glass-container rounded-2xl w-[420px] h-[580px] p-4 flex flex-col relative overflow-hidden backdrop-blur-2xl border border-white/10 shadow-2xl ${className}`}
-    >
-      {/* Native Drag Region Titlebar */}
-      <div data-tauri-drag-region className="w-full h-7 flex items-center justify-between pb-2 cursor-grab active:cursor-grabbing border-b border-white/5">
-        <div className="flex items-center space-x-2">
-          <span className="w-2.5 h-2.5 rounded-full bg-red-500/80 inline-block"></span>
-          <span className="w-2.5 h-2.5 rounded-full bg-yellow-500/80 inline-block"></span>
-          <span className="w-2.5 h-2.5 rounded-full bg-green-500/80 inline-block"></span>
+    <div className="w-[420px] h-[620px] glass-panel rounded-2xl flex flex-col overflow-hidden text-slate-100 shadow-2xl border border-white/10 relative">
+      {/* Top Drag Region & Window Title */}
+      <div className="drag-region h-11 px-4 flex items-center justify-between border-b border-white/5 bg-white/[0.02]">
+        {/* macOS Traffic Lights (Minimalist Functional) */}
+        <div className="flex items-center gap-2 no-drag">
+          <button
+            onClick={handleClose}
+            className="w-3 h-3 rounded-full bg-rose-500/80 hover:bg-rose-500 transition-colors shadow-sm"
+            aria-label="Close"
+          />
+          <button
+            onClick={handleMinimize}
+            className="w-3 h-3 rounded-full bg-amber-500/80 hover:bg-amber-500 transition-colors shadow-sm"
+            aria-label="Minimize"
+          />
+          <div className="w-3 h-3 rounded-full bg-emerald-500/30 cursor-default" />
         </div>
-        <span className="text-xs font-medium text-slate-400 tracking-wider">LiveSpeak</span>
-        <div className="w-12 text-right">
-          <span className="text-[10px] text-emerald-400/90 font-mono">100% LOCAL</span>
+
+        {/* Header Title with Live Status */}
+        <div className="flex items-center gap-2">
+          <span className="font-semibold text-xs tracking-wider uppercase text-slate-300">LiveSpeak</span>
+          {isRecording ? (
+            <span className="flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-400 text-[10px] font-mono border border-emerald-500/30 animate-pulse">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              RECORDING
+            </span>
+          ) : (
+            <span className="text-[10px] text-slate-500 font-mono tracking-tight">STANDBY</span>
+          )}
+        </div>
+
+        {/* Hotkey Hint */}
+        <div className="text-[10px] font-mono text-slate-500 bg-white/5 px-1.5 py-0.5 rounded border border-white/5">
+          Cmd+Shift+Space
         </div>
       </div>
-      <div className="flex-1 flex flex-col pt-3 overflow-hidden">
+
+      {/* Main Content Area */}
+      <div className="flex-1 flex flex-col p-4 overflow-hidden gap-3">
         {children}
       </div>
     </div>

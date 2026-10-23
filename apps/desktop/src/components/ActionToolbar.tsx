@@ -1,47 +1,102 @@
-import React from 'react';
-import { Sparkles, Copy, Radio } from 'lucide-react';
+import React, { useState } from "react";
+import { Copy, Trash2, Radio, Check, PictureInPicture2 } from "lucide-react";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { TranscriptSentence } from "../types/transcript";
 
 interface ActionToolbarProps {
-  onCleanUp: () => void;
-  onCopy: () => void;
-  onBroadcastModal: () => void;
-  isCleaning?: boolean;
+  sentences: TranscriptSentence[];
+  onClear: () => void;
+  onOpenBroadcast: () => void;
+  isBroadcasting: boolean;
+  onTogglePiP?: () => void;
+  isPipActive?: boolean;
 }
 
 export const ActionToolbar: React.FC<ActionToolbarProps> = ({
-  onCleanUp,
-  onCopy,
-  onBroadcastModal,
-  isCleaning = false,
+  sentences,
+  onClear,
+  onOpenBroadcast,
+  isBroadcasting,
+  onTogglePiP,
+  isPipActive = false,
 }) => {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    if (sentences.length === 0) return;
+
+    const fullText = sentences
+      .map((s) => `[${s.source.toUpperCase()}] ${s.text}`)
+      .join("\n");
+
+    try {
+      await writeText(fullText);
+    } catch {
+      await navigator.clipboard.writeText(fullText);
+    }
+
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
   return (
-    <div className="flex items-center justify-between pt-2 border-t border-white/5 space-x-2">
-      <button
-        onClick={onCleanUp}
-        disabled={isCleaning}
-        className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 border border-white/10 transition-colors"
-      >
-        <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-        <span>{isCleaning ? 'Cleaning...' : 'Clean Up'}</span>
-      </button>
-
-      <div className="flex items-center space-x-2">
+    <div className="flex items-center justify-between pt-1 border-t border-white/5 no-drag text-xs">
+      <div className="flex items-center gap-1.5">
         <button
-          onClick={onBroadcastModal}
-          className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-indigo-500/10 hover:bg-indigo-500/20 text-xs font-medium text-indigo-300 border border-indigo-500/20 transition-colors"
+          onClick={handleCopy}
+          disabled={sentences.length === 0}
+          className="px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 disabled:opacity-40 disabled:hover:bg-white/5 text-slate-300 hover:text-white flex items-center gap-1.5 transition-colors"
         >
-          <Radio className="w-3.5 h-3.5" />
-          <span>Broadcast</span>
+          {copied ? (
+            <>
+              <Check className="w-3.5 h-3.5 text-emerald-400" />
+              <span className="text-emerald-400 font-medium">Copied</span>
+            </>
+          ) : (
+            <>
+              <Copy className="w-3.5 h-3.5" />
+              <span>Copy</span>
+            </>
+          )}
         </button>
 
         <button
-          onClick={onCopy}
-          className="flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-white/5 hover:bg-white/10 text-xs font-medium text-slate-200 border border-white/10 transition-colors"
+          onClick={onClear}
+          disabled={sentences.length === 0}
+          className="p-1.5 rounded-lg bg-white/5 hover:bg-rose-500/20 disabled:opacity-40 text-slate-400 hover:text-rose-300 transition-colors"
+          title="Clear transcript"
         >
-          <Copy className="w-3.5 h-3.5" />
-          <span>Copy</span>
+          <Trash2 className="w-3.5 h-3.5" />
         </button>
+
+        {onTogglePiP && (
+          <button
+            onClick={onTogglePiP}
+            className={`px-2 py-1.5 rounded-lg flex items-center gap-1 transition-all ${
+              isPipActive
+                ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 font-medium shadow-sm"
+                : "bg-white/5 hover:bg-white/10 text-slate-400 hover:text-white border border-white/5"
+            }`}
+            title="Spotlight floating live caption capsule over your movie or screen"
+          >
+            <PictureInPicture2 className={`w-3.5 h-3.5 ${isPipActive ? "text-emerald-400" : ""}`} />
+            <span className="text-[11px]">{isPipActive ? "Spotlight Active" : "Spotlight"}</span>
+          </button>
+        )}
       </div>
+
+      {/* Live Event Broadcast Trigger */}
+      <button
+        onClick={onOpenBroadcast}
+        className={`px-3 py-1.5 rounded-lg flex items-center gap-1.5 font-medium transition-all ${
+          isBroadcasting
+            ? "bg-sky-500/20 text-sky-300 border border-sky-500/30 shadow-sm animate-pulse"
+            : "bg-white/5 hover:bg-white/10 text-slate-300 hover:text-white border border-white/5"
+        }`}
+      >
+        <Radio className={`w-3.5 h-3.5 ${isBroadcasting ? "text-sky-400" : "text-slate-400"}`} />
+        <span>Live Broadcast</span>
+      </button>
     </div>
   );
 };
