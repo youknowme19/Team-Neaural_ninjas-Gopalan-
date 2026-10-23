@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
-  Search,
   Volume2,
   Mic,
   Check,
@@ -97,7 +96,7 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
   const phaseRef = useRef<number>(0);
 
   useEffect(() => {
-    targetLevelRef.current = active ? Math.max(level, 0.32) : level;
+    targetLevelRef.current = active ? Math.max(level, 0.35) : level;
   }, [level, active]);
 
   useEffect(() => {
@@ -108,27 +107,27 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
     if (!ctx) return;
 
     const dpr = window.devicePixelRatio || 1;
-    const width = 22;
-    const height = 22;
+    const width = 26;
+    const height = 24;
     canvas.width = width * dpr;
     canvas.height = height * dpr;
     ctx.scale(dpr, dpr);
 
-    // 4 harmonic voice bars
-    const barWeights = [0.55, 1.0, 0.85, 0.5];
-    const barOffsets = [0.0, 1.4, 2.8, 4.2];
+    // 5 harmonic voice bars
+    const barWeights = [0.45, 0.8, 1.0, 0.8, 0.45];
+    const barOffsets = [0.0, 1.2, 2.4, 3.6, 4.8];
 
     const render = () => {
       const target = targetLevelRef.current;
-      const rate = target > smoothLevelRef.current ? 0.28 : 0.1;
+      const rate = target > smoothLevelRef.current ? 0.30 : 0.08;
       smoothLevelRef.current += (target - smoothLevelRef.current) * rate;
       const amp = smoothLevelRef.current;
 
-      phaseRef.current += 0.07 + amp * 0.16;
+      phaseRef.current += 0.07 + amp * 0.18;
 
       ctx.clearRect(0, 0, width, height);
 
-      const barCount = 4;
+      const barCount = 5;
       const barWidth = 2.4;
       const gap = 2.2;
       const totalW = barCount * barWidth + (barCount - 1) * gap;
@@ -138,12 +137,12 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
       for (let i = 0; i < barCount; i++) {
         const w = barWeights[i];
         const wave = Math.sin(phaseRef.current + barOffsets[i]) * 0.5 + 0.5;
-        const secondary = Math.cos(phaseRef.current * 1.6 - barOffsets[i]) * 0.5 + 0.5;
+        const secondary = Math.cos(phaseRef.current * 1.5 - barOffsets[i]) * 0.5 + 0.5;
         const modulation = 0.65 * wave + 0.35 * secondary;
 
-        const idleBreath = 3.6 + Math.sin(phaseRef.current * 0.45 + i * 0.9) * 0.8 * w;
-        const activeHeight = idleBreath + amp * w * (6.0 + modulation * 11.0);
-        const h = Math.min(18, Math.max(3.5, activeHeight));
+        const idleBreath = 4.0 + Math.sin(phaseRef.current * 0.5 + i * 0.9) * 1.2 * w;
+        const activeHeight = idleBreath + amp * w * (7.0 + modulation * 13.0);
+        const h = Math.min(20, Math.max(3.8, activeHeight));
 
         const x = startX + i * (barWidth + gap);
         const y = centerY - h / 2;
@@ -164,8 +163,8 @@ const SmoothAudioWave: React.FC<{ level: number; active: boolean }> = ({ level, 
   return (
     <canvas
       ref={canvasRef}
-      style={{ width: '22px', height: '22px' }}
-      className="shrink-0 mr-2 pointer-events-none"
+      style={{ width: '26px', height: '24px' }}
+      className="shrink-0 mr-2.5 pointer-events-none"
     />
   );
 };
@@ -229,7 +228,7 @@ export const CaptionOverlayView: React.FC = () => {
       }
     });
 
-    // 2. Fast 75ms status + live hardware audio amplitude sync for visualizer
+    // 2. Fast 75ms status sync
     const pollInterval = setInterval(async () => {
       try {
         const status = await invoke<LiveStatusPayload>('get_live_status');
@@ -246,8 +245,8 @@ export const CaptionOverlayView: React.FC = () => {
             setAudioLevel(status.audio_level);
           }
           const cleaned = (status.caption || '').trim();
-          if (cleaned.length > 0) {
-            setCaption((prev) => (prev ? prev : cleaned));
+          if (cleaned.length > 0 && !caption) {
+            setCaption(cleaned);
           }
         }
       } catch (_) {}
@@ -430,11 +429,20 @@ export const CaptionOverlayView: React.FC = () => {
       ? 'text-[22px]'
       : 'text-[19.5px]';
 
-  const hasOverflowLeft = caption.length > 28;
+  // Dynamic context-aware idle text
+  const idleCreativeText =
+    targetLang === 'en'
+      ? 'Listening for speech...'
+      : targetLang === 'hi'
+      ? 'लाइव अनुवाद (Hindi)...'
+      : `Listening & Translating → ${currentLangObj.nativeName}...`;
+
+  const activeDisplayText = tentativeText || caption;
+  const hasOverflowLeft = activeDisplayText.length > 28;
 
   return (
     <div className="w-screen h-screen flex flex-col items-center justify-start bg-transparent select-none px-2 pt-[10px]">
-      {/* Exact Spotlight Search Capsule Pill */}
+      {/* Sleek Frosted Glass Live Caption Capsule */}
       <div
         onMouseDown={handlePillMouseDown}
         style={{
@@ -448,21 +456,17 @@ export const CaptionOverlayView: React.FC = () => {
         }}
         className="group/pill relative w-full h-[60px] rounded-full flex items-center justify-between pl-4 pr-3.5 cursor-grab active:cursor-grabbing overflow-hidden shrink-0"
       >
-        {/* Left: Authentic Spotlight Magnifying Glass + Caret + Spotlight Search Placeholder or Live Transcription */}
+        {/* Left: 60 FPS Smooth Audio Wave Visualizer + Dynamic Live Captioning */}
         <div className="flex items-center flex-1 min-w-0 overflow-hidden mr-2 pointer-events-none">
-          <Search className="w-[19px] h-[19px] text-[#64748b] shrink-0 mr-3 stroke-[2.2]" />
+          <SmoothAudioWave level={audioLevel} active={isSpeakingPulse} />
 
-          {audioLevel > 0.08 && (
-            <SmoothAudioWave level={audioLevel} active={isSpeakingPulse} />
-          )}
-
-          {!caption ? (
+          {!caption && !tentativeText ? (
             <div className="flex items-center overflow-hidden">
-              <span className="w-[1.5px] h-[23px] bg-[#334155] rounded-full shrink-0 mr-[2px] animate-pulse" />
+              <span className="w-[1.5px] h-[23px] bg-[#334155] rounded-full shrink-0 mr-[3px] animate-pulse" />
               <span
                 className={`${fontSizeClass} font-normal tracking-[-0.018em] text-[#64748b] whitespace-nowrap select-none truncate`}
               >
-                Spotlight Search
+                {idleCreativeText}
               </span>
             </div>
           ) : (
@@ -481,7 +485,7 @@ export const CaptionOverlayView: React.FC = () => {
                 }
                 className="overflow-x-hidden whitespace-nowrap max-w-full"
               >
-                {committedText && tentativeText ? (
+                {targetLang === 'en' && committedText && tentativeText ? (
                   <span className={`${fontSizeClass} tracking-[-0.012em] whitespace-nowrap`}>
                     <span className="font-normal text-[#0f172a]">{committedText} </span>
                     <span className="font-normal text-[#64748b] transition-opacity duration-150">
@@ -492,7 +496,7 @@ export const CaptionOverlayView: React.FC = () => {
                   <span
                     className={`${fontSizeClass} font-normal tracking-[-0.012em] text-[#0f172a] whitespace-nowrap`}
                   >
-                    {caption}
+                    {activeDisplayText}
                   </span>
                 )}
               </div>
@@ -504,7 +508,7 @@ export const CaptionOverlayView: React.FC = () => {
         {/* Right: Quick Controls Styled as Refined Translucent Frosted Glass Pills */}
         <div className="flex items-center shrink-0 space-x-1 mr-1">
           {/* Quick Copy & Clear buttons (appear subtly on hover when caption is active) */}
-          {caption && (
+          {(caption || tentativeText) && (
             <div className="hidden group-hover/pill:flex items-center space-x-0.5 mr-0.5">
               <button
                 onClick={handleCopyCaption}

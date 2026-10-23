@@ -1,5 +1,5 @@
 //! Stage 4 Asynchronous Real-Time Clause Translator with Persistent TLS Connection Pool,
-//! Multi-Clause History (`VecDeque<String>`), and Zero-Blocking `Condvar` Mailbox.
+//! Overlap Deduplication, and Zero-Blocking `Condvar` Mailbox.
 //! Decouples network translation I/O completely from the Whisper inference thread.
 
 use crate::broadcast::websocket::BroadcastHub;
@@ -46,6 +46,30 @@ impl AsyncTranslationHandle {
     }
 }
 
+/// Strips overlapping words between consecutive audio chunks (e.g. YouTube streaming overlap).
+pub fn deduplicate_overlap(previous: &str, current: &str) -> String {
+    let prev_words: Vec<&str> = previous.split_whitespace().collect();
+    let curr_words: Vec<&str> = current.split_whitespace().collect();
+    if prev_words.is_empty() || curr_words.is_empty() {
+        return current.to_string();
+    }
+    // Check if the end of previous matches the start of current (up to 8 words)
+    let max_check = prev_words.len().min(curr_words.len()).min(8);
+    for k in (1..=max_check).rev() {
+        let prev_suffix = &prev_words[prev_words.len() - k..];
+        let curr_prefix = &curr_words[..k];
+        let matches = prev_suffix.iter().zip(curr_prefix.iter()).all(|(a, b)| {
+            a.trim_matches(|c: char| !c.is_alphanumeric())
+                .eq_ignore_ascii_case(b.trim_matches(|c: char| !c.is_alphanumeric()))
+        });
+        if matches {
+            let stripped: Vec<&str> = curr_words[k..].to_vec();
+            return stripped.join(" ");
+        }
+    }
+    current.to_string()
+}
+
 /// Spawns the dedicated Stage 4 Asynchronous Translation & Emission Worker Thread
 pub fn spawn_translation_stage(
     target_language: Arc<Mutex<String>>,
@@ -57,8 +81,8 @@ pub fn spawn_translation_stage(
 
     std::thread::spawn(move || {
         let mut translator = RealtimeTranslator::new();
-        // Keep the last 2 finalized clauses so a short clause ("Yes.") never wipes out the previous sentence
-        let mut committed_clauses: VecDeque<String> = VecDeque::with_capacity(3);
+        let mut last_committed_clause = String::new();
+        let mut last_committed_english = String::new();
         let mut last_live_translated = String::new();
         let mut last_live_english = String::new();
         let mut last_translated_word_count: usize = 0;
@@ -89,7 +113,8 @@ pub fn spawn_translation_stage(
             };
 
             if do_reset {
-                committed_clauses.clear();
+                last_committed_clause.clear();
+                last_committed_english.clear();
                 last_live_translated.clear();
                 last_live_english.clear();
                 last_translated_word_count = 0;
@@ -98,7 +123,6 @@ pub fn spawn_translation_stage(
             }
 
             // Immediately push raw source speech to the Live Event QR BroadcastHub (0.00ms)
-            // so all QR-connected audience phones receive low-latency captions in their own chosen language!
             BroadcastHub::global().update_source_speech(&clause_en, is_final);
 
             let current_lang = target_language
@@ -107,93 +131,113 @@ pub fn spawn_translation_stage(
                 .unwrap_or_else(|_| "en".to_string());
             if current_lang != active_lang {
                 active_lang = current_lang.clone();
-                committed_clauses.clear();
+                last_committed_clause.clear();
+                last_committed_english.clear();
                 last_live_translated.clear();
                 last_live_english.clear();
                 last_translated_word_count = 0;
             }
 
-            // Skip redundant live emission if the English text hasn't changed at all
-            if !is_final && clause_en == last_live_english && !last_live_translated.is_empty() {
-                continue;
-            }
+            let is_english = current_lang == "en";
 
-            // Language-Aware Word-by-Word vs SOV/VOS 2-Word Syntactic Grouping:
-            // - In English ("en"): emit every single word immediately (0ms) as soon as it is spoken!
-            // - In SOV/VOS/non-English languages (Hindi, Tamil, Telugu, Japanese, etc.):
-            //   wait until at least 2 words (or a 2-word increment) are spoken during live interim decoding
-            //   so Subject-Object-Verb / postposition word order doesn't jitter on isolated half-words,
-            //   while still translating immediately whenever a phrase finishes (`is_final == true`).
-            let current_word_count = clause_en.split_whitespace().count();
-            if current_lang != "en" && !is_final {
-                let word_delta = current_word_count.abs_diff(last_translated_word_count);
-                if current_word_count < 2 || (last_translated_word_count > 0 && word_delta < 2) {
-                    continue;
-                }
-            }
-
-            let translated_opt = translator.translate_clause(&clause_en, &current_lang);
-            let display_clause = match translated_opt {
-                Some(t) if !t.is_empty() => t,
-                _ => {
-                    // Fallback: never drop a finalized sentence if a single network packet timed out!
-                    if !last_live_translated.is_empty() {
-                        last_live_translated.clone()
-                    } else {
+            if is_english {
+                // English direct path
+                if is_final {
+                    let deduped = deduplicate_overlap(&last_committed_english, &clause_en);
+                    let final_text = if deduped.trim().is_empty() {
                         clause_en.clone()
+                    } else {
+                        deduped
+                    };
+                    last_committed_clause = final_text.clone();
+                    last_committed_english = clause_en.clone();
+                    last_live_translated.clear();
+                    last_live_english.clear();
+                    last_translated_word_count = 0;
+
+                    if let Ok(mut guard) = live_transcript.lock() {
+                        *guard = final_text.clone();
+                    }
+                    on_caption(final_text.clone(), String::new(), final_text);
+                } else {
+                    if clause_en == last_live_english {
+                        continue;
+                    }
+                    let deduped = deduplicate_overlap(&last_committed_english, &clause_en);
+                    if deduped.trim().is_empty() {
+                        continue;
+                    }
+                    last_live_english = clause_en.clone();
+                    if let Ok(mut guard) = live_transcript.lock() {
+                        *guard = deduped.clone();
+                    }
+                    on_caption(String::new(), deduped.clone(), deduped);
+                }
+            } else {
+                // Non-English Translation Path (Hindi, Tamil, Telugu, etc.)
+                if is_final {
+                    let deduped = deduplicate_overlap(&last_committed_english, &clause_en);
+                    let text_to_trans = if deduped.trim().is_empty() {
+                        clause_en.clone()
+                    } else {
+                        deduped
+                    };
+
+                    let translated_opt = translator.translate_clause(&text_to_trans, &current_lang);
+                    let display_clause = match translated_opt {
+                        Some(t) if !t.is_empty() => t,
+                        _ => {
+                            if !last_live_translated.is_empty() {
+                                last_live_translated.clone()
+                            } else {
+                                text_to_trans
+                            }
+                        }
+                    };
+
+                    last_committed_clause = display_clause.clone();
+                    last_committed_english = clause_en.clone();
+                    last_live_translated.clear();
+                    last_live_english.clear();
+                    last_translated_word_count = 0;
+
+                    if let Ok(mut guard) = live_transcript.lock() {
+                        *guard = display_clause.clone();
+                    }
+                    on_caption(display_clause.clone(), String::new(), display_clause);
+                } else {
+                    let deduped = deduplicate_overlap(&last_committed_english, &clause_en);
+                    let trimmed_en = deduped.trim();
+                    if trimmed_en.is_empty() || trimmed_en == last_live_english {
+                        continue;
+                    }
+
+                    let current_word_count = trimmed_en.split_whitespace().count();
+                    // In SOV languages like Hindi, wait for at least 2 words or a 2-word delta
+                    // to prevent mismatched grammatical fragments
+                    let word_delta = current_word_count.abs_diff(last_translated_word_count);
+                    if current_word_count < 2 || (last_translated_word_count > 0 && word_delta < 2) {
+                        continue;
+                    }
+
+                    if let Some(translated) = translator.translate_clause(trimmed_en, &current_lang) {
+                        if !translated.is_empty() {
+                            last_live_english = trimmed_en.to_string();
+                            last_live_translated = translated.clone();
+                            last_translated_word_count = current_word_count;
+
+                            if let Ok(mut guard) = live_transcript.lock() {
+                                *guard = translated.clone();
+                            }
+                            on_caption(String::new(), translated.clone(), translated);
+                        }
                     }
                 }
-            };
-
-            if display_clause.is_empty() {
-                continue;
-            }
-
-            if is_final {
-                committed_clauses.push_back(display_clause);
-                while committed_clauses.len() > 2 {
-                    committed_clauses.pop_front();
-                }
-                last_live_translated.clear();
-                last_live_english.clear();
-                last_translated_word_count = 0;
-
-                let committed_str = join_clauses(&committed_clauses);
-                if let Ok(mut guard) = live_transcript.lock() {
-                    *guard = committed_str.clone();
-                }
-                on_caption(committed_str.clone(), String::new(), committed_str);
-            } else {
-                last_live_english = clause_en;
-                last_live_translated = display_clause.clone();
-                last_translated_word_count = current_word_count;
-
-                let committed_str = join_clauses(&committed_clauses);
-                let full = if committed_str.is_empty() {
-                    display_clause.clone()
-                } else {
-                    format!("{} {}", committed_str, display_clause)
-                };
-                if let Ok(mut guard) = live_transcript.lock() {
-                    *guard = full.clone();
-                }
-                on_caption(committed_str, display_clause, full);
             }
         }
     });
 
     AsyncTranslationHandle { mailbox }
-}
-
-fn join_clauses(clauses: &VecDeque<String>) -> String {
-    let mut out = String::new();
-    for c in clauses {
-        if !out.is_empty() {
-            out.push(' ');
-        }
-        out.push_str(c);
-    }
-    out
 }
 
 pub struct RealtimeTranslator {
@@ -217,9 +261,9 @@ impl RealtimeTranslator {
 
         let client = reqwest::Client::builder()
             .tcp_nodelay(true)
-            .pool_max_idle_per_host(4)
+            .pool_max_idle_per_host(8)
             .pool_idle_timeout(Duration::from_secs(300))
-            .timeout(Duration::from_millis(1200))
+            .timeout(Duration::from_millis(1500))
             .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36")
             .build()
             .ok();
@@ -227,7 +271,7 @@ impl RealtimeTranslator {
         Self {
             rt,
             client,
-            cache: HashMap::with_capacity(256),
+            cache: HashMap::with_capacity(512),
         }
     }
 
@@ -253,42 +297,49 @@ impl RealtimeTranslator {
         };
 
         let encoded_q = url_encode(trimmed);
-        // Use sl=auto so even mixed Hinglish/multilingual terms translate cleanly into the target language
+        // sl=en specifies English source from Whisper for optimal target grammatical alignment
         let url = format!(
-            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=auto&tl={}&dt=t&q={}",
+            "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl={}&dt=t&q={}",
             lang, encoded_q
         );
 
-        let result: Option<String> = rt.block_on(async {
-            let resp = client.get(&url).send().await.ok()?;
-            if !resp.status().is_success() {
-                return None;
-            }
-            let json: serde_json::Value = resp.json().await.ok()?;
-            let outer = json.as_array()?.first()?.as_array()?;
-            let mut out = String::new();
-            for item in outer {
-                if let Some(seg) = item.as_array().and_then(|a| a.first()).and_then(|v| v.as_str()) {
-                    out.push_str(seg);
+        // Retry loop: 2 attempts with 50ms backoff to handle transient network dropouts
+        for attempt in 0..2 {
+            let result: Option<String> = rt.block_on(async {
+                let resp = client.get(&url).send().await.ok()?;
+                if !resp.status().is_success() {
+                    return None;
                 }
-            }
-            let final_str = out.trim().to_string();
-            if final_str.is_empty() {
-                None
-            } else {
-                Some(final_str)
-            }
-        });
+                let json: serde_json::Value = resp.json().await.ok()?;
+                let outer = json.as_array()?.first()?.as_array()?;
+                let mut out = String::new();
+                for item in outer {
+                    if let Some(seg) = item.as_array().and_then(|a| a.first()).and_then(|v| v.as_str()) {
+                        out.push_str(seg);
+                    }
+                }
+                let final_str = out.trim().to_string();
+                if final_str.is_empty() {
+                    None
+                } else {
+                    Some(final_str)
+                }
+            });
 
-        if let Some(translated) = result {
-            if self.cache.len() > 500 {
-                self.cache.clear();
+            if let Some(translated) = result {
+                if self.cache.len() > 800 {
+                    self.cache.clear();
+                }
+                self.cache.insert(key, translated.clone());
+                return Some(translated);
             }
-            self.cache.insert(key, translated.clone());
-            Some(translated)
-        } else {
-            None
+
+            if attempt == 0 {
+                std::thread::sleep(Duration::from_millis(50));
+            }
         }
+
+        None
     }
 }
 
