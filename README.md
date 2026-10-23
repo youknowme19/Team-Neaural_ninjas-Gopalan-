@@ -82,7 +82,7 @@ graph TB
         end
     end
 
-    subgraph Storage_Layer["On-Device Model Storage (< 200MB)"]
+    subgraph Storage_Layer["On-Device Model Storage (Under 200MB)"]
         Whisper_Weights["tiny.en / base.en (GGUF Quantized, 75MB - 140MB)"]
         Grammar_Weights["Qwen2.5-0.5B-Instruct (Q4_K_M GGUF, ~350MB Opt / API Fallback)"]
         VAD_Weights["Silero VAD ONNX (~2MB)"]
@@ -130,7 +130,7 @@ graph TB
     Whisper_Sidecar -->|stdout Tokens with Metadata| Token_Classifier
 
     %% Internal Token Dispatch with Source Diarization
-    Token_Classifier -->|Emit: token-stream payload (source: mic or window)| IPC_Bridge
+    Token_Classifier -->|Emit: token-stream payload - source: mic or window| IPC_Bridge
     IPC_Bridge --> Transcript_Stream
 
     %% Broadcasting Dispatch
