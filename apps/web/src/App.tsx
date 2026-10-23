@@ -537,67 +537,7 @@ export function App() {
             - Three stat chips
            ========================================================================= */}
 
-        {/* 1. "Built on open foundations" Tech Logo Strip */}
-        <section aria-label="Built on open foundations" style={{ marginTop: '96px', textAlign: 'center' }}>
-          <p style={{ 
-            fontSize: '13px', 
-            fontWeight: 700, 
-            letterSpacing: '0.08em', 
-            textTransform: 'uppercase', 
-            color: 'var(--text-muted)',
-            marginBottom: '28px'
-          }}>
-            Built on open foundations · Engineered for bare-metal speed
-          </p>
 
-          <div style={{ 
-            display: 'flex', 
-            flexWrap: 'wrap', 
-            alignItems: 'center', 
-            justifyContent: 'center', 
-            gap: '14px',
-            maxWidth: '980px',
-            margin: '0 auto'
-          }}>
-            {[
-              { name: 'whisper.cpp', desc: 'GGUF Engine', bg: 'var(--pastel-peach-soft)', color: '#C2410C' },
-              { name: 'Tauri v2', desc: 'Native Host (15MB)', bg: 'var(--pastel-lilac-soft)', color: '#6D28D9' },
-              { name: 'Apple CoreML', desc: 'M-Series Neural Engine', bg: '#F5F5F7', color: '#1D1D1F' },
-              { name: 'Windows DirectML', desc: 'DirectX 12 NPU/GPU', bg: '#EFF6FF', color: '#1D4ED8' },
-              { name: 'Silero VAD', desc: 'ONNX Voice Slicer', bg: 'var(--pastel-mint-soft)', color: '#047857' },
-              { name: 'Rust Tokio', desc: 'Lock-Free Ring Buffer', bg: '#FFF7ED', color: '#C2410C' },
-            ].map((tech, idx) => (
-              <div 
-                key={idx}
-                style={{ 
-                  background: '#FFFFFF', 
-                  border: '1px solid var(--border-medium)', 
-                  padding: '10px 20px', 
-                  borderRadius: 'var(--radius-pill)',
-                  display: 'flex',
-                  alignItems: 'center',
-                  gap: '10px',
-                  boxShadow: '0 2px 8px rgba(0,0,0,0.02)',
-                  transition: 'all 0.2s ease',
-                  cursor: 'default'
-                }}
-              >
-                <span style={{ 
-                  width: '8px', 
-                  height: '8px', 
-                  borderRadius: '50%', 
-                  background: tech.color 
-                }} />
-                <span style={{ fontSize: '14px', fontWeight: 700, color: 'var(--text-primary)' }}>
-                  {tech.name}
-                </span>
-                <span style={{ fontSize: '12px', color: 'var(--text-muted)', fontWeight: 500 }}>
-                  {tech.desc}
-                </span>
-              </div>
-            ))}
-          </div>
-        </section>
 
         {/* 2. Speed Section: "Captions in under a second." */}
         <section aria-label="Speed performance comparison" style={{ marginTop: '104px', textAlign: 'center' }}>
