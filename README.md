@@ -25,6 +25,8 @@ Deliver a production-ready, local-first dictation, transcription, and live-event
 
 ## 2. High-Organization System Architecture
 
+![OmniScribe Edge System Architecture](assets/omniscribe_architecture.jpg)
+
 The following diagram details the multi-tier architectural topology of OmniScribe Edge, highlighting process boundaries, inter-process communication (IPC), hardware acceleration routes, dual-source audio capture, sliding-window streaming, and LAN audience distribution.
 
 ```mermaid
