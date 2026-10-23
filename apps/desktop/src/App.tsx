@@ -1,4 +1,3 @@
-import React, { useState } from 'react';
 import { WidgetView } from './routes/WidgetView';
 import { BroadcastView } from './routes/BroadcastView';
 

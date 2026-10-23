@@ -49,19 +49,60 @@ pub fn get_windows_internal() -> Result<Vec<ActiveWindow>, String> {
 
 #[cfg(target_os = "macos")]
 pub fn get_windows_internal() -> Result<Vec<ActiveWindow>, String> {
-    // macOS CoreGraphics window list
-    Ok(vec![
-        ActiveWindow {
-            process_id: 1,
-            window_name: "Zoom Meeting".to_string(),
-            app_name: "zoom.us".to_string(),
-        },
-        ActiveWindow {
-            process_id: 2,
-            window_name: "Microsoft Teams".to_string(),
-            app_name: "Teams".to_string(),
-        },
-    ])
+    use std::process::Command;
+
+    let output = Command::new("ps")
+        .args(["-eo", "pid,command"])
+        .output()
+        .map_err(|e| format!("Failed to execute ps command: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut windows = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.contains("Helper") || trimmed.contains("grep") {
+            continue;
+        }
+
+        if trimmed.contains("/Applications/") || trimmed.contains("/System/Applications/") {
+            let parts: Vec<&str> = trimmed.split_whitespace().collect();
+            if parts.is_empty() {
+                continue;
+            }
+
+            if let Ok(pid) = parts[0].parse::<u32>() {
+                let full_cmd = parts[1..].join(" ");
+                // Extract clean application name
+                let app_name = if let Some(app_pos) = full_cmd.find(".app") {
+                    let before_app = &full_cmd[..app_pos];
+                    if let Some(slash_pos) = before_app.rfind('/') {
+                        before_app[slash_pos + 1..].to_string()
+                    } else {
+                        "Application".to_string()
+                    }
+                } else {
+                    "Application".to_string()
+                };
+
+                windows.push(ActiveWindow {
+                    process_id: pid,
+                    window_name: format!("{} (PID: {})", app_name, pid),
+                    app_name,
+                });
+            }
+        }
+    }
+
+    if windows.is_empty() {
+        windows.push(ActiveWindow {
+            process_id: std::process::id(),
+            window_name: "LiveSpeak Desktop".to_string(),
+            app_name: "LiveSpeak".to_string(),
+        });
+    }
+
+    Ok(windows)
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "macos")))]

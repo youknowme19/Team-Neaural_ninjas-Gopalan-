@@ -13,11 +13,16 @@ dist/
 # Rust / Tauri build artifacts
 target/
 src-tauri/target/
+apps/desktop/src-tauri/target/
 
-# Model binaries and temporary audio dumps
+# Model binaries and sidecar executables
 *.wav
 *.bin
 *.gguf
+apps/desktop/src-tauri/bin/*
+!apps/desktop/src-tauri/bin/.gitkeep
+apps/desktop/src-tauri/models/*
+!apps/desktop/src-tauri/models/.gitkeep
 !models/*.gitkeep
 
 # Environment variables

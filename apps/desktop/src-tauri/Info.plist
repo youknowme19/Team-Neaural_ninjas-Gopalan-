@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Without these, macOS silently refuses microphone / speech access to the app -->
+	<key>NSMicrophoneUsageDescription</key>
+	<string>LiveSpeak listens to your microphone to transcribe speech into live captions.</string>
+	<key>NSSpeechRecognitionUsageDescription</key>
+	<string>LiveSpeak uses speech recognition to turn your voice into live captions.</string>
+</dict>
+</plist>

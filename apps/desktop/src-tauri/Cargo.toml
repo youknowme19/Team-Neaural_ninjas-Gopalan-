@@ -29,7 +29,9 @@ qrcode = "0.14"
 base64 = "0.22"
 log = "0.4"
 env_logger = "0.11"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+regex = "1.10"
+async-trait = "0.1"
 
 # Target-specific platform dependencies:
 # Windows: Native Win32 APIs for window enumeration and WASAPI loopback

@@ -274,6 +274,8 @@ To strictly honor the 200MB total distribution limit while providing real-time r
 | Application Config & Caches | < 1.0 MB | < 2 MB | Local Storage |
 | **Total Core Configuration** | **~143.2 MB** | **~180 MB - 225 MB** | **Sub-200MB Target Met** |
 
+> **Optional local LLMs (not included in the totals above):** Clean Up and "Catch me up" use Qwen2.5-0.5B (~490 MB on disk, ~0.5 GB RAM). Live translation uses Gemma 3 1B (~810 MB on disk, ~1 GB RAM). With these installed, the total exceeds the 200 MB target.
+
 ---
 
 ## 6. Repository Layout
@@ -418,14 +420,52 @@ To achieve the native macOS floating widget aesthetic without borders or chrome:
   * Speech End: Probability < 0.35 sustained over 400ms marks the termination of speech.
 * Upon termination, the buffered samples (including a 150ms pre-roll to prevent front-clipping of plosives) are converted to a 16-bit linear PCM WAV container in memory.
 
-### 7.3 Grammar Cleanup Pipeline
-* The "Clean Up" module accepts the raw transcription string and executes a targeted prompt:
-  ```
-  [INST] System: You are an expert speech editor. Remove speech disfluencies, filler words (um, uh, like), fix punctuation, and correct casing while preserving speaker tags. Retain original vocabulary and intent without editorial commentary.
-  Raw: {RAW_TRANSCRIPTION}
-  Cleaned: [/INST]
-  ```
-* Output is streamed back to replace the raw buffer and automatically presented with an instant copy action button.
+### 7.3 Grammar Correction Module (Phase 5 Implementation)
+
+LiveSpeak implements a modular, dual-route post-processing architecture ensuring transcripts are punctuated, disfluency-free ("um", "uh", "you know"), and grammatically pristine while strictly preserving speaker markers and dialogue structure.
+
+#### 1. Provider Execution Routes
+* **Route A: Local Offline Execution (`llama.cpp` + Qwen2.5-Instruct):**
+  * **Runtime:** a resident `llama-server` sidecar on `127.0.0.1:8089` (override with `LIVESPEAK_LLAMA_PORT`). It loads the model once and stays warm. Each Clean Up is a localhost HTTP call that only pays for token generation, and the system prompt stays in the KV cache. If only `llama-cli` is installed, a one-shot `llama-cli` run is used instead (slower: the model is reloaded on every request).
+  * **Shared with the broadcast hub:** the hub (Section 8.4) writes its "Catch me up" summaries on the same Qwen server. Whichever starts first owns it and the other attaches, so Qwen is loaded into RAM only once.
+  * **Model Weights:** Qwen2.5-1.5B-Instruct is used if present, otherwise Qwen2.5-0.5B-Instruct (both 4-bit `Q4_K_M` GGUF). In testing, Qwen 0.5B did Clean Up well (fixed "i has", removed fillers, kept speaker markers), while Gemma 3 1B barely edited the text. Qwen therefore stays the Clean Up model.
+  * **Warm-up:** selecting a provider pre-loads the model (`warm_grammar_provider`), so the first Clean Up does not pay for model loading.
+  * **Long transcripts:** split at speaker turns (~1,500 characters per chunk) and cleaned 3 chunks at a time, so latency follows the longest chunk rather than the total length.
+  * **Zero Cloud Guarantee:** runs completely offline. Connects only to `127.0.0.1`.
+  * **Resolution Order:** Custom path in request -> `QWEN_MODEL_PATH` env var -> `src-tauri/models/` (1.5B first, then 0.5B).
+* **Route B: Optional Cloud API (`Groq API`), off by default:** choosing this route sends transcript text to Groq, so the air-gap guarantee no longer holds while it is selected. It uses one pooled keep-alive connection, opened in advance when the route is selected, so requests skip the TLS handshake.
+  * **Endpoint:** `https://api.groq.com/openai/v1/chat/completions`
+  * **Model:** Configurable instruction-following model (`llama-3.1-8b-instant`).
+  * **Credentials:** Read from `GROQ_API_KEY` environment variable or entered securely in the UI settings panel (persisted locally, never logged).
+  * **Latency Target:** Sub-second response time over broadband network connections.
+
+#### 2. Speaker Marker & Structural Preservation
+Transcripts generated during live meetings and dictations contain diarized speaker tags:
+```text
+[Local]: um i has completed the initial architecture review.
+[Remote]: thats, uh, really great thank you so much for the update.
+```
+The grammar pipeline passes strict system instructions protecting structural tokens. Post-execution, `SpeakerMarkerPreserver::validate_and_realign` verifies that:
+1. Every speaker marker (`[Local]:`, `[Remote]:`, or `[Speaker N]:`) remains intact in the exact original sequence.
+2. If an LLM response drops a tag, a line-by-line realignment algorithm safely restores the original tags to corresponding cleaned lines.
+3. If structural validation fails or lines are dropped, an error is returned to prevent silent transcript corruption.
+
+#### 3. Native Clipboard Integration
+The "Copy" action uses `@tauri-apps/plugin-clipboard-manager` to write text directly to the OS clipboard, providing 2-second visual feedback (`Copied!`) and falling back to browser clipboard APIs when running in web preview mode.
+
+#### 4. Model Acquisition & Local Setup
+To run local grammar correction with Route A:
+1. Download the weights once (the only network access; everything afterwards is offline):
+   ```bash
+   scripts/download_models.sh                   # Qwen2.5-0.5B (Clean Up, summaries) + Gemma 3 1B (translation)
+   scripts/download_models.sh --no-translation  # Qwen2.5-0.5B only, if you don't need live translation
+   ```
+2. Install llama.cpp (`brew install llama.cpp` on macOS), or place `llama-server` in `apps/desktop/src-tauri/bin/`.
+3. If placed in custom directories, set environment variables:
+   ```bash
+   export QWEN_MODEL_PATH="/path/to/qwen2.5-1.5b-instruct-q4_k_m.gguf"
+   export LLAMA_SERVER_PATH="/path/to/llama-server"   # or LLAMA_CPP_PATH for llama-cli
+   ```
 
 ---
 
@@ -454,6 +494,26 @@ To handle large-scale live events, LiveSpeak transcends standard push-to-talk di
   * **Local WebSocket Server:** The Rust backend instantiates an asynchronous WebSocket server (`tokio-tungstenite`) bound to `ws://0.0.0.0:8080`.
   * **OBS Studio Integration (Streamers):** The app serves a dedicated transparent route (`/broadcast`). Streamers paste `http://localhost:8080/broadcast` directly into an OBS Studio "Browser Source" to overlay transparent live subtitles with zero background artifacts.
   * **QR Code Audience Mode (In-Person Events):** Clicking "Start Live Event Mode" resolves the host's local IP address (e.g., `http://192.168.1.45:8080/broadcast`) and generates a scannable QR code on the desktop interface. Audience members scan the code with their mobile devices to open an interactive, responsive live caption reader connected directly to the host over local Wi-Fi.
+
+### 8.4 Live Translated Captions & "Catch Me Up" (On-Device)
+* **The Problem:** A single-language speaker loses everyone in a mixed-language room. People who arrive late have no way to catch up without interrupting.
+* **The Solution:** each audience phone picks its own caption language, and a local LLM on the presenter's machine translates every finished line. Nothing is sent to a cloud service.
+  * **Per-reader language:** the phone reader (`/broadcast`) offers English, Hindi, Bengali, Tamil, Telugu, Marathi, Spanish, French, German, Portuguese, Arabic, Chinese and Japanese. Each phone subscribes with `/api/broadcast/stream?lang=<code>`.
+  * **Translate once, serve many:** translations are cached by caption text and language. Fifty phones reading Hindi cost one translation per line, and a line re-sent after Clean Up is not translated again.
+  * **Newest line first:** finished lines are translated newest-first, up to 4 at a time. The in-progress line streams instantly in English; its translation replaces it once the sentence is finished. The original stays visible beneath each translated line.
+  * **Catch me up:** a button on the phone returns a topic line, 3 bullet points so far and the action items, in the reader's language (`/api/catchup?lang=<code>`). Phones that ask at the same moment share one generation.
+  * **Graceful degradation:** if `llama-server` or the model is missing, phones show the reason and keep showing the original captions.
+* **Two local models, each where it tested best:**
+  * **Gemma 3 1B (`127.0.0.1:8090`):** caption translation. In testing, Qwen 0.5B produced unusable Hindi and Tamil and changed meanings in French, while Gemma produced mostly correct Hindi, Spanish and French.
+  * **Qwen2.5-0.5B (`127.0.0.1:8089`, shared with Clean Up):** Catch up summaries, written in English. The summary is then split into topic, points and action items, and only those full sentences are translated by Gemma. Small translators answer bare headings like "Action items:" instead of translating them, so the phone draws the headings itself.
+  * **No Gemma installed:** translation falls back to the Qwen server.
+* **Translation prompt:** each caption is sent as `English: <caption>` with output stopped at the first line break. Without this, a caption like "Please send your feedback" made the model reply to the request instead of translating it, and sometimes loop.
+* **Measured on a 2015 MacBook Air (Intel i5-5350U, 2 cores, CPU only), both models loaded:**
+  * Caption translation: about 5.5 s per line; several lines are translated in parallel.
+  * English Catch up: about 4.5–5.5 s.
+  * Hindi Catch up: about 10 s.
+  * Apple Silicon machines should be several times faster (not measured).
+* **Implementation:** `apps/desktop/server/broadcastHub.ts` (SSE hub), `translationHub.ts` (cache, queue, prompts, catch-up parsing), `localLlm.ts` (finds or starts the `llama-server` processes on `127.0.0.1`, and restarts a server that has died). These run inside the Vite dev server that already serves the phone reader.
 
 ---
 
@@ -582,17 +642,37 @@ cmake --build build --config Release -j $env:NUMBER_OF_PROCESSORS
 Copy-Item build\bin\Release\whisper-cli.exe ..\src-tauri\bin\whisper-sidecar-x86_64-pc-windows-msvc.exe
 ```
 
-### 11.2 Building the Desktop Application
+### 11.2 Building and Testing
+
 ```bash
-# Install root workspace dependencies
+# 1. Install workspace dependencies
 pnpm install
 
-# Run development server with live reload
-pnpm --filter desktop tauri dev
+# 2. Run automated test suite (ActionToolbar, useGrammarCorrection, SpeakerPreservation, Clipboard)
+pnpm --filter livespeak-desktop run test
 
-# Package final standalone production bundles
-pnpm --filter desktop tauri build
+# 3. Typecheck and build desktop frontend bundle
+pnpm --filter livespeak-desktop run build
+
+# 4. Run desktop development server with live reload
+pnpm --filter livespeak-desktop tauri dev
+
+# 5. Package standalone production desktop bundle
+pnpm --filter livespeak-desktop tauri build
 ```
+
+### 11.3 Troubleshooting & Operational Guide
+
+* **Issue: "Transcript cannot be empty or contain only whitespace"**
+  * *Solution:* The `Clean Up` button stays hidden while the transcript is blank. Click `Sample` or type/record speech, and it appears.
+* **Issue: Phones show "Translation unavailable"**
+  * *Solution:* The broadcast hub could not start `llama-server`. Install llama.cpp (`brew install llama.cpp`), run `scripts/download_models.sh`, then restart `pnpm --filter livespeak-desktop dev`. Check `/api/llm/status` for the exact reason.
+* **Issue: "Local Qwen2.5-0.5B GGUF model not found"**
+  * *Solution:* Ensure you have downloaded the quantized Qwen GGUF model to `src-tauri/models/qwen2.5-0.5b-instruct.gguf` or set the `QWEN_MODEL_PATH` environment variable pointing to your model file.
+* **Issue: "Groq API key not found"**
+  * *Solution:* Either click the **Settings** gear icon in the LiveSpeak action toolbar and paste your Groq API key (e.g., `gsk_...`), or export `GROQ_API_KEY="gsk_..."` in your terminal before launching.
+* **Issue: "Speaker marker preservation check failed"**
+  * *Solution:* LiveSpeak protects conversation integrity. If a third-party model removes speaker labels or drops lines during post-processing, LiveSpeak safely rejects the corrupted output and keeps your original text intact.
 
 ---
 
@@ -604,6 +684,10 @@ LiveSpeak is architected from first principles to be completely secure and self-
 * **No Telemetry or Tracking:** No analytical beacons, crash reporters, or tracking identifiers are compiled into the binary.
 * **In-Memory Audio Processing:** Audio buffers are captured and analyzed exclusively in transient RAM. Audio is never written to disk, preventing forensic recovery of sensitive speech.
 * **Air-Gap Verification:** The software operates seamlessly on offline workstations, high-security enclaves, and disconnected enterprise machines.
+* **Local LLM features:** Clean Up (Route A), live translation and Catch me up connect only to `llama-server` on `127.0.0.1`.
+* **Current exceptions (be aware before claiming air-gap):**
+  * Grammar Route B (Groq) sends transcript text to Groq when a user selects it. It is off by default.
+  * Until the whisper.cpp sidecar (Phase 4) is wired in, live transcription uses the browser's Web Speech API. In Chrome, that sends microphone audio to Google's speech service, so live transcription is not yet on-device.
 
 ---
 
