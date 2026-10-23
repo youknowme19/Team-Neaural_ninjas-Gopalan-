@@ -92,11 +92,11 @@ impl UltraLowLatencyEngine {
         self.transcribe_zerocopy_pcm_with_prompt(wav_bytes, "")
     }
 
-    /// Sends 16kHz WAV bytes + rolling context prompt to `whisper-server.exe`.
+    /// Sends 16kHz WAV bytes to `whisper-server.exe`.
     pub fn transcribe_zerocopy_pcm_with_prompt(
         &self,
         wav_bytes: &[u8],
-        rolling_context: &str,
+        _rolling_context: &str,
     ) -> Result<String, String> {
         let boundary = "----LiveSpeakZeroCopyBoundary7MA4YWxkTrZu0gW";
         let mut body = Vec::with_capacity(wav_bytes.len() + 1280);
@@ -113,16 +113,6 @@ impl UltraLowLatencyEngine {
                 &mut body,
                 "--{}\r\nContent-Disposition: form-data; name=\"{}\"\r\n\r\n{}\r\n",
                 boundary, name, val
-            )
-            .map_err(|e| e.to_string())?;
-        }
-
-        let trimmed_prompt = rolling_context.trim();
-        if !trimmed_prompt.is_empty() {
-            write!(
-                &mut body,
-                "--{}\r\nContent-Disposition: form-data; name=\"prompt\"\r\n\r\n{}\r\n",
-                boundary, trimmed_prompt
             )
             .map_err(|e| e.to_string())?;
         }
