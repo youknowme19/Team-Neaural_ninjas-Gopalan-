@@ -4,5 +4,6 @@ pub mod target_win;
 pub mod loopback_win;
 pub mod dual_buffer;
 pub mod sliding_window;
+pub mod chunking;
 pub mod vad;
 pub mod wav;

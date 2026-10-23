@@ -1,10 +1,9 @@
+use crate::engine::grammar::FillerRemover;
+
 #[tauri::command]
-pub async fn clean_transcript(raw_text: String) -> Result<String, String> {
-    // Grammar cleanup routine: handles filler word & disfluency removal
-    let mut cleaned = raw_text;
-    let fillers = ["um", "uh", "like,", "you know,"];
-    for filler in fillers {
-        cleaned = cleaned.replace(filler, "");
-    }
-    Ok(cleaned.trim().to_string())
+pub async fn clean_transcript(raw_text: String, is_english: Option<bool>) -> Result<String, String> {
+    // Ultra low-latency local filler word stripper inspired by Handy
+    let english = is_english.unwrap_or(true);
+    let cleaned = FillerRemover::clean(&raw_text, english);
+    Ok(cleaned)
 }

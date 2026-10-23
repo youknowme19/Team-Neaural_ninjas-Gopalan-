@@ -29,10 +29,11 @@ qrcode = "0.14"
 base64 = "0.22"
 log = "0.4"
 env_logger = "0.11"
-reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+regex = "1.10"
+once_cell = "1.19"
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 # Target-specific platform dependencies:
-# Windows: Native Win32 APIs for window enumeration and WASAPI loopback
 [target.'cfg(target_os = "windows")'.dependencies]
 windows = { version = "0.58", features = [
     "Win32_Foundation",
@@ -42,7 +43,10 @@ windows = { version = "0.58", features = [
     "Win32_System_ProcessStatus",
 ] }
 
-# macOS: ScreenCaptureKit & CoreGraphics for window enumeration and process-specific audio lock
 [target.'cfg(target_os = "macos")'.dependencies]
 core-graphics = "0.23"
 objc2 = "0.5"
+
+[profile.dev]
+incremental = false
+

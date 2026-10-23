@@ -1,13 +1,7 @@
-import React, { useState } from 'react';
-import { WidgetView } from './routes/WidgetView';
-import { BroadcastView } from './routes/BroadcastView';
+import React from 'react';
+import { CaptionOverlayView } from './routes/CaptionOverlayView';
 
 export default function App() {
-  const isBroadcast = window.location.pathname.includes('/broadcast') || window.location.search.includes('view=broadcast');
-
-  return (
-    <div className="w-full h-full">
-      {isBroadcast ? <BroadcastView /> : <WidgetView />}
-    </div>
-  );
+  // Always render the Spotlight Caption Overlay view directly!
+  return <CaptionOverlayView />;
 }
