@@ -31,7 +31,19 @@ export function SmoothScrollProvider({ children }: SmoothScrollProviderProps) {
 
     const animId = requestAnimationFrame(raf);
 
+    function handleIntro(e: Event) {
+      const customEvent = e as CustomEvent<'play' | 'done'>;
+      if (customEvent.detail === 'play') {
+        lenis.stop();
+      } else if (customEvent.detail === 'done') {
+        lenis.start();
+      }
+    }
+
+    window.addEventListener('livespeak:intro', handleIntro);
+
     return () => {
+      window.removeEventListener('livespeak:intro', handleIntro);
       cancelAnimationFrame(animId);
       lenis.destroy();
     };
