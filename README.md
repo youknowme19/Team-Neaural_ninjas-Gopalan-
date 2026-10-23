@@ -116,7 +116,7 @@ graph TB
     Whisper_Sidecar -->|stdout Raw Tokens| Token_Classifier
 
     %% Internal Token Dispatch
-    Token_Classifier -->|Emit: token-stream {type, text}| IPC_Bridge
+    Token_Classifier -->|Emit: token-stream payload| IPC_Bridge
     IPC_Bridge --> Transcript_Stream
 
     %% Broadcasting Dispatch
@@ -173,7 +173,7 @@ sequenceDiagram
         Whisper->>Whisper: CoreML / DirectML Inference
         Whisper-->>Rust: Stream stdout Tokens
         Rust->>Rust: Token Classifier parses PARTIAL vs. FINAL text
-        Rust->>DesktopUI: Emit Tauri Event { type: "partial" | "final", text }
+        Rust->>DesktopUI: Emit Token Event (partial or final text)
         DesktopUI->>DesktopUI: Render Real-Time "Typing" Transition
         Rust->>Broadcaster: Forward JSON Payload to Connected Sockets
         Broadcaster-->>Audience: Stream Live JSON to OBS & LAN Mobile Devices
