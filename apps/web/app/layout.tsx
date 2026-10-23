@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "LiveSpeak | 100% On-Device Live Speech-to-Text & Diarization",
-  description: "Sub-second live dictation, meeting target lock, zero-latency source-aware speaker diarization, and LAN event broadcasting.",
+  title: "OmniScribe Edge — On-Device Ultra-Low Latency Speech-to-Text",
+  description: "Featherweight, 100% on-device live speech-to-text desktop application with sub-second latency, hardware acceleration, and live audience broadcasting.",
 };
 
 export default function RootLayout({
@@ -13,7 +13,12 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en">
-      <body className="antialiased bg-[#09090b] text-slate-100 min-h-screen">
+      <head>
+        <link rel="preconnect" href="https://fonts.googleapis.com" />
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
+        <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Newsreader:ital,opsz,wght@1,6..72,400;1,6..72,500;1,6..72,600&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+      </head>
+      <body className="antialiased">
         {children}
       </body>
     </html>

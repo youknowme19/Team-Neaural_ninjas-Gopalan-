@@ -1,0 +1,284 @@
+/* ==========================================================================
+   OmniScribe Edge Design System
+   Palette: Warm off-white (#FAF8F4), Pure White (#FFFFFF), 
+   Pastel Blobs (Peach, Lilac, Mint), Deep Slate ink (#18181B)
+   ========================================================================== */
+
+:root {
+  --bg-canvas: #FAF8F4;
+  --bg-card: #FFFFFF;
+  --bg-card-subtle: #F6F4EE;
+  
+  --text-primary: #1C1917;
+  --text-secondary: #57534E;
+  --text-muted: #858079;
+  --text-dim: #A8A29E;
+
+  --border-subtle: rgba(28, 25, 23, 0.06);
+  --border-medium: rgba(28, 25, 23, 0.10);
+  --border-strong: rgba(28, 25, 23, 0.16);
+
+  /* Pastel Accent Tones */
+  --pastel-peach: #FFD8C2;
+  --pastel-peach-soft: #FFF2EB;
+  --pastel-lilac: #E8DDFF;
+  --pastel-lilac-soft: #F5EFFF;
+  --pastel-mint: #C9F0DF;
+  --pastel-mint-soft: #EDFAF4;
+  --pastel-pink: #FDE2E8;
+
+  --primary-accent: #1C1917;
+  --primary-accent-hover: #292524;
+
+  /* Typography */
+  --font-sans: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+  --font-serif-italic: 'Newsreader', Georgia, serif;
+  --font-mono: 'JetBrains Mono', monospace;
+
+  /* Shadows */
+  --shadow-sm: 0 2px 6px -1px rgba(28, 25, 23, 0.04), 0 1px 3px -1px rgba(28, 25, 23, 0.02);
+  --shadow-card: 0 20px 45px -15px rgba(45, 35, 25, 0.07), 0 8px 16px -6px rgba(45, 35, 25, 0.03);
+  --shadow-card-hover: 0 30px 60px -15px rgba(45, 35, 25, 0.11), 0 12px 24px -6px rgba(45, 35, 25, 0.04);
+  --shadow-floating: 0 35px 70px -15px rgba(28, 25, 23, 0.12), 0 15px 30px -8px rgba(28, 25, 23, 0.06);
+
+  /* Radius */
+  --radius-card: 24px;
+  --radius-pill: 9999px;
+  --radius-badge: 12px;
+}
+
+* {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html, body {
+  background-color: var(--bg-canvas);
+  color: var(--text-primary);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  line-height: 1.5;
+  overflow-x: hidden;
+}
+
+/* Serif italic accent class */
+.serif-accent {
+  font-family: var(--font-serif-italic);
+  font-style: italic;
+  font-weight: 400;
+}
+
+/* Background Pastel Blobs */
+.blob-container {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 100%;
+  max-width: 1440px;
+  height: 100%;
+  pointer-events: none;
+  overflow: hidden;
+  z-index: 0;
+}
+
+.blob {
+  position: absolute;
+  border-radius: 50%;
+  filter: blur(100px);
+  opacity: 0.65;
+  mix-blend-mode: multiply;
+  animation: floatSlow 18s ease-in-out infinite alternate;
+}
+
+.blob-peach {
+  width: 550px;
+  height: 550px;
+  background: var(--pastel-peach);
+  top: -120px;
+  left: 5%;
+  animation-duration: 22s;
+}
+
+.blob-lilac {
+  width: 600px;
+  height: 600px;
+  background: var(--pastel-lilac);
+  top: 80px;
+  right: 2%;
+  animation-duration: 26s;
+  animation-delay: -4s;
+}
+
+.blob-mint {
+  width: 520px;
+  height: 520px;
+  background: var(--pastel-mint);
+  top: 480px;
+  left: 20%;
+  animation-duration: 20s;
+  animation-delay: -8s;
+}
+
+@keyframes floatSlow {
+  0% { transform: translateY(0px) scale(1); }
+  50% { transform: translateY(35px) scale(1.06); }
+  100% { transform: translateY(-20px) scale(0.96); }
+}
+
+/* Layout container */
+.container-1200 {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+  position: relative;
+  z-index: 1;
+}
+
+/* Pill buttons */
+.pill-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 12px 26px;
+  border-radius: var(--radius-pill);
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.22s cubic-bezier(0.16, 1, 0.3, 1);
+  text-decoration: none;
+  border: 1px solid transparent;
+}
+
+.pill-button-primary {
+  background: var(--primary-accent);
+  color: #FFFFFF;
+  box-shadow: 0 4px 14px rgba(28, 25, 23, 0.16);
+}
+
+.pill-button-primary:hover {
+  background: var(--primary-accent-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(28, 25, 23, 0.22);
+}
+
+.pill-button-secondary {
+  background: #FFFFFF;
+  color: var(--text-primary);
+  border: 1px solid var(--border-medium);
+  box-shadow: var(--shadow-sm);
+}
+
+.pill-button-secondary:hover {
+  background: var(--bg-card-subtle);
+  border-color: var(--border-strong);
+  transform: translateY(-2px);
+}
+
+/* Cards */
+.rounded-card {
+  background: var(--bg-card);
+  border-radius: var(--radius-card);
+  border: 1px solid var(--border-subtle);
+  box-shadow: var(--shadow-card);
+  transition: box-shadow 0.3s ease, transform 0.3s ease;
+}
+
+.rounded-card:hover {
+  box-shadow: var(--shadow-card-hover);
+}
+
+/* Eyebrow Pill */
+.eyebrow-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 18px;
+  background: #FFFFFF;
+  border: 1px solid rgba(28, 25, 23, 0.08);
+  border-radius: var(--radius-pill);
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.03);
+}
+
+/* Highlighter styles */
+.highlight-pink {
+  background-color: #FFE5EE;
+  color: #C0265B;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 500;
+  text-decoration: line-through;
+  text-decoration-color: #E11D48;
+}
+
+.highlight-green {
+  background-color: #E3F8ED;
+  color: #0E7044;
+  padding: 2px 6px;
+  border-radius: 6px;
+  font-weight: 600;
+}
+
+/* ==========================================================================
+   Mobile Responsive Adaptations (matching Stitch Mobile Design System)
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  .container-1200 {
+    padding: 0 16px;
+  }
+
+  .blob-peach {
+    width: 320px;
+    height: 320px;
+    top: -60px;
+    left: -10%;
+  }
+
+  .blob-lilac {
+    width: 340px;
+    height: 340px;
+    top: 100px;
+    right: -10%;
+  }
+
+  .blob-mint {
+    width: 300px;
+    height: 300px;
+    top: 360px;
+    left: 0%;
+  }
+
+  h1 {
+    font-size: 38px !important;
+    line-height: 1.15 !important;
+  }
+
+  h2 {
+    font-size: 32px !important;
+    line-height: 1.18 !important;
+  }
+
+  /* Single-column stacking on mobile */
+  .mobile-stack-grid {
+    grid-template-columns: 1fr !important;
+    gap: 20px !important;
+  }
+
+  .rounded-card {
+    padding: 24px 18px !important;
+    border-radius: 20px !important;
+  }
+
+  .pill-button {
+    width: 100% !important;
+    padding: 14px 20px !important;
+  }
+}
+
