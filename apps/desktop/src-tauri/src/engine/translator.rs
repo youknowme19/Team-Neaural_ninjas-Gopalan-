@@ -1,16 +1,22 @@
 //! Stage 4 Asynchronous Real-Time Clause Translator with Persistent TLS Connection Pool,
-//! Overlap Deduplication, and Zero-Blocking `Condvar` Mailbox.
-//! Decouples network translation I/O completely from the Whisper inference thread.
+//! Multi-Speaker Attribution ("You", "User 1", "User 2"), Overlap Deduplication, and Zero-Blocking `Condvar` Mailbox.
 
 use crate::broadcast::websocket::BroadcastHub;
 use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, Condvar, Mutex};
 use std::time::Duration;
 
+#[derive(Clone, Debug, Default)]
+pub struct TranslationItem {
+    pub speaker_id: String,
+    pub speaker_label: String,
+    pub text: String,
+}
+
 #[derive(Default)]
 struct TranslationMailbox {
-    pending_finals: VecDeque<String>,
-    latest_live: Option<String>,
+    pending_finals: VecDeque<TranslationItem>,
+    latest_live: Option<TranslationItem>,
     reset: bool,
 }
 
@@ -20,15 +26,26 @@ pub struct AsyncTranslationHandle {
 }
 
 impl AsyncTranslationHandle {
-    /// Pushes a decoded English clause from Whisper to the Stage 4 translation thread in 0.00ms (never blocks Whisper!)
-    pub fn submit_clause(&self, english_clause: String, is_final: bool) {
+    /// Pushes a decoded English clause with speaker attribution to the Stage 4 translation thread (0.00ms)
+    pub fn submit_clause(
+        &self,
+        speaker_id: String,
+        speaker_label: String,
+        english_clause: String,
+        is_final: bool,
+    ) {
         let (lock, cvar) = &*self.mailbox;
         if let Ok(mut guard) = lock.lock() {
+            let item = TranslationItem {
+                speaker_id,
+                speaker_label,
+                text: english_clause,
+            };
             if is_final {
-                guard.pending_finals.push_back(english_clause);
+                guard.pending_finals.push_back(item);
                 guard.latest_live = None;
             } else {
-                guard.latest_live = Some(english_clause);
+                guard.latest_live = Some(item);
             }
             cvar.notify_one();
         }
@@ -46,14 +63,13 @@ impl AsyncTranslationHandle {
     }
 }
 
-/// Strips overlapping words between consecutive audio chunks (e.g. YouTube streaming overlap).
+/// Strips overlapping words between consecutive audio chunks (e.g. streaming overlap).
 pub fn deduplicate_overlap(previous: &str, current: &str) -> String {
     let prev_words: Vec<&str> = previous.split_whitespace().collect();
     let curr_words: Vec<&str> = current.split_whitespace().collect();
     if prev_words.is_empty() || curr_words.is_empty() {
         return current.to_string();
     }
-    // Check if the end of previous matches the start of current (up to 8 words)
     let max_check = prev_words.len().min(curr_words.len()).min(8);
     for k in (1..=max_check).rev() {
         let prev_suffix = &prev_words[prev_words.len() - k..];
@@ -70,11 +86,11 @@ pub fn deduplicate_overlap(previous: &str, current: &str) -> String {
     current.to_string()
 }
 
-/// Spawns the dedicated Stage 4 Asynchronous Translation & Emission Worker Thread
+/// Spawns the dedicated Stage 4 Asynchronous Translation & Emission Worker Thread with Speaker Attribution
 pub fn spawn_translation_stage(
     target_language: Arc<Mutex<String>>,
     live_transcript: Arc<Mutex<String>>,
-    on_caption: impl Fn(String, String, String) + Send + Sync + 'static,
+    on_caption: impl Fn(String, String, String, String, String) + Send + Sync + 'static,
 ) -> AsyncTranslationHandle {
     let mailbox = Arc::new((Mutex::new(TranslationMailbox::default()), Condvar::new()));
     let mailbox_worker = mailbox.clone();
@@ -89,7 +105,7 @@ pub fn spawn_translation_stage(
         let mut active_lang = "en".to_string();
 
         loop {
-            let (clause_en, is_final, do_reset) = {
+            let (item, is_final, do_reset) = {
                 let (lock, cvar) = &*mailbox_worker;
                 let mut guard = lock.lock().unwrap_or_else(|e| e.into_inner());
                 while guard.pending_finals.is_empty()
@@ -102,7 +118,7 @@ pub fn spawn_translation_stage(
                     guard.reset = false;
                     guard.pending_finals.clear();
                     guard.latest_live = None;
-                    (String::new(), false, true)
+                    (TranslationItem::default(), false, true)
                 } else if let Some(fin) = guard.pending_finals.pop_front() {
                     (fin, true, false)
                 } else if let Some(live) = guard.latest_live.take() {
@@ -122,7 +138,11 @@ pub fn spawn_translation_stage(
                 continue;
             }
 
-            // Immediately push raw source speech to the Live Event QR BroadcastHub (0.00ms)
+            let clause_en = item.text;
+            let speaker_id = if item.speaker_id.is_empty() { "you".to_string() } else { item.speaker_id };
+            let speaker_label = if item.speaker_label.is_empty() { "You".to_string() } else { item.speaker_label };
+
+            // Broadcast raw speech to Live Event QR hub
             BroadcastHub::global().update_source_speech(&clause_en, is_final);
 
             let current_lang = target_language
@@ -158,7 +178,7 @@ pub fn spawn_translation_stage(
                     if let Ok(mut guard) = live_transcript.lock() {
                         *guard = final_text.clone();
                     }
-                    on_caption(final_text.clone(), String::new(), final_text);
+                    on_caption(speaker_id, speaker_label, final_text.clone(), String::new(), final_text);
                 } else {
                     if clause_en == last_live_english {
                         continue;
@@ -171,10 +191,10 @@ pub fn spawn_translation_stage(
                     if let Ok(mut guard) = live_transcript.lock() {
                         *guard = deduped.clone();
                     }
-                    on_caption(String::new(), deduped.clone(), deduped);
+                    on_caption(speaker_id, speaker_label, String::new(), deduped.clone(), deduped);
                 }
             } else {
-                // Non-English Translation Path (Hindi, Tamil, Telugu, etc.)
+                // Non-English Translation Path (Hindi, Tamil, etc.)
                 if is_final {
                     let deduped = deduplicate_overlap(&last_committed_english, &clause_en);
                     let text_to_trans = if deduped.trim().is_empty() {
@@ -204,7 +224,7 @@ pub fn spawn_translation_stage(
                     if let Ok(mut guard) = live_transcript.lock() {
                         *guard = display_clause.clone();
                     }
-                    on_caption(display_clause.clone(), String::new(), display_clause);
+                    on_caption(speaker_id, speaker_label, display_clause.clone(), String::new(), display_clause);
                 } else {
                     let deduped = deduplicate_overlap(&last_committed_english, &clause_en);
                     let trimmed_en = deduped.trim();
@@ -213,8 +233,6 @@ pub fn spawn_translation_stage(
                     }
 
                     let current_word_count = trimmed_en.split_whitespace().count();
-                    // In SOV languages like Hindi, wait for at least 2 words or a 2-word delta
-                    // to prevent mismatched grammatical fragments
                     let word_delta = current_word_count.abs_diff(last_translated_word_count);
                     if current_word_count < 2 || (last_translated_word_count > 0 && word_delta < 2) {
                         continue;
@@ -229,7 +247,7 @@ pub fn spawn_translation_stage(
                             if let Ok(mut guard) = live_transcript.lock() {
                                 *guard = translated.clone();
                             }
-                            on_caption(String::new(), translated.clone(), translated);
+                            on_caption(speaker_id, speaker_label, String::new(), translated.clone(), translated);
                         }
                     }
                 }
@@ -276,7 +294,6 @@ impl RealtimeTranslator {
     }
 
     /// Translates a single complete or in-progress clause into `target_lang`.
-    /// Returns immediately (0ms) for `"en"` or cached clauses.
     pub fn translate_clause(&mut self, clause: &str, target_lang: &str) -> Option<String> {
         let trimmed = clause.trim();
         if trimmed.is_empty() {
@@ -297,13 +314,11 @@ impl RealtimeTranslator {
         };
 
         let encoded_q = url_encode(trimmed);
-        // sl=en specifies English source from Whisper for optimal target grammatical alignment
         let url = format!(
             "https://translate.googleapis.com/translate_a/single?client=gtx&sl=en&tl={}&dt=t&q={}",
             lang, encoded_q
         );
 
-        // Retry loop: 2 attempts with 50ms backoff to handle transient network dropouts
         for attempt in 0..2 {
             let result: Option<String> = rt.block_on(async {
                 let resp = client.get(&url).send().await.ok()?;

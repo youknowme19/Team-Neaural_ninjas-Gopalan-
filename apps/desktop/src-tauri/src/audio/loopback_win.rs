@@ -7,6 +7,7 @@ use crate::audio::capture::downsample_to_16k_antialiased;
 use crate::audio::vad::{normalize_loopback_gain, SmoothedVad, VadFrame, FRAME_SAMPLES_16MS};
 use crate::audio::wav::samples_to_wav_bytes;
 use crate::commands::windows::get_windows_internal;
+use crate::engine::diarizer::RemoteMeetingDiarizer;
 use crate::engine::grammar::FillerRemover;
 use crate::engine::translator::spawn_translation_stage;
 use crate::engine::zerocopy::UltraLowLatencyEngine;
@@ -38,7 +39,7 @@ impl WindowsLoopbackCapture {
         live_audio_level: Arc<AtomicU32>,
         suggested_media_window: Arc<Mutex<Option<ActiveWindow>>>,
         live_transcript: Arc<Mutex<String>>,
-        on_caption: impl Fn(String, String) + Send + Sync + 'static,
+        on_caption: impl Fn(String, String, String, String, String) + Send + Sync + 'static,
     ) {
         let (pcm_tx, pcm_rx) = mpsc::channel::<Vec<f32>>();
         let mailbox = Arc::new((Mutex::new(LoopbackDecodeMailbox::default()), Condvar::new()));
@@ -50,8 +51,8 @@ impl WindowsLoopbackCapture {
         let translator_handle = spawn_translation_stage(
             target_language,
             live_transcript,
-            move |_committed, tentative, full| {
-                on_caption_stage4(full, tentative);
+            move |speaker_id, speaker_label, committed, tentative, full| {
+                on_caption_stage4(speaker_id, speaker_label, committed, tentative, full);
             },
         );
 
@@ -64,6 +65,7 @@ impl WindowsLoopbackCapture {
             std::thread::spawn(move || {
                 let engine = UltraLowLatencyEngine::new(bin_dir, models_dir);
                 let mut committed_english_context = String::new();
+                let mut diarizer = RemoteMeetingDiarizer::new();
 
                 loop {
                     let (samples, is_final, do_reset) = {
@@ -92,13 +94,14 @@ impl WindowsLoopbackCapture {
 
                     if do_reset {
                         committed_english_context.clear();
+                        diarizer.reset();
                         tx_stage4.reset();
                         continue;
                     }
 
                     let is_app_mode = mode_worker
                         .lock()
-                        .map(|m| m.as_str() == "app")
+                        .map(|m| m.as_str() == "app" || m.as_str() == "meeting")
                         .unwrap_or(false);
                     if !is_app_mode {
                         committed_english_context.clear();
@@ -122,13 +125,14 @@ impl WindowsLoopbackCapture {
                             if !cleaned.is_empty() {
                                 let still_app = mode_worker
                                     .lock()
-                                    .map(|m| m.as_str() == "app")
+                                    .map(|m| m.as_str() == "app" || m.as_str() == "meeting")
                                     .unwrap_or(false);
                                 if still_app {
                                     if is_final {
                                         committed_english_context = cleaned.clone();
                                     }
-                                    tx_stage4.submit_clause(cleaned, is_final);
+                                    let (spk_id, spk_label) = diarizer.identify_speaker(&normalized, 16000);
+                                    tx_stage4.submit_clause(spk_id, spk_label, cleaned, is_final);
                                 }
                             }
                         }
@@ -152,7 +156,7 @@ impl WindowsLoopbackCapture {
                 while let Ok(samples_16k) = pcm_rx.recv() {
                     let is_app_mode = mode_vad
                         .lock()
-                        .map(|m| m.as_str() == "app")
+                        .map(|m| m.as_str() == "app" || m.as_str() == "meeting")
                         .unwrap_or(false);
 
                     if !is_app_mode {
@@ -278,7 +282,7 @@ impl WindowsLoopbackCapture {
                     let rms = (sum_sq / frames as f32).sqrt();
 
                     // Update real-time wave visualizer energy when in app-sharing mode
-                    let is_app = mode_cb.lock().map(|m| m.as_str() == "app").unwrap_or(false);
+                    let is_app = mode_cb.lock().map(|m| m.as_str() == "app" || m.as_str() == "meeting").unwrap_or(false);
                     if is_app {
                         let norm_level = ((rms - 0.002).max(0.0) * 10.0).clamp(0.0, 1.0);
                         level_cb.store(norm_level.to_bits(), Ordering::Relaxed);

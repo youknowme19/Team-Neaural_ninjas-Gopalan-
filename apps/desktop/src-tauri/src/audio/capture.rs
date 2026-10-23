@@ -137,7 +137,7 @@ impl AudioCaptureManager {
         target_language: Arc<Mutex<String>>,
         live_audio_level: Arc<AtomicU32>,
         live_transcript: Arc<Mutex<String>>,
-        on_caption: impl Fn(String, String, String) + Send + Sync + 'static,
+        on_caption: impl Fn(String, String, String, String, String) + Send + Sync + 'static,
     ) {
         let (pcm_tx, pcm_rx) = mpsc::channel::<Vec<f32>>();
         let mailbox = Arc::new((Mutex::new(DecodeMailbox::default()), Condvar::new()));
@@ -189,7 +189,7 @@ impl AudioCaptureManager {
 
                     let is_mic_mode = mode_worker
                         .lock()
-                        .map(|m| m.as_str() == "mic")
+                        .map(|m| m.as_str() == "mic" || m.as_str() == "meeting")
                         .unwrap_or(true);
                     if !is_mic_mode {
                         committed_english_context.clear();
@@ -214,7 +214,7 @@ impl AudioCaptureManager {
                                     committed_english_context = cleaned.clone();
                                 }
                                 // Hand off immediately (0.00ms) to Stage 4 Translation Worker!
-                                tx_stage4.submit_clause(cleaned, is_final);
+                                tx_stage4.submit_clause("you".to_string(), "You".to_string(), cleaned, is_final);
                             }
                         }
                     }
@@ -237,7 +237,7 @@ impl AudioCaptureManager {
                 while let Ok(samples_16k) = pcm_rx.recv() {
                     let is_mic_mode = mode_vad
                         .lock()
-                        .map(|m| m.as_str() == "mic")
+                        .map(|m| m.as_str() == "mic" || m.as_str() == "meeting")
                         .unwrap_or(true);
 
                     if !is_mic_mode {
@@ -380,7 +380,7 @@ impl AudioCaptureManager {
                     }
 
                     // Update real-time wave visualizer energy when in microphone mode
-                    let is_mic = mode_cb.lock().map(|m| m.as_str() == "mic").unwrap_or(true);
+                    let is_mic = mode_cb.lock().map(|m| m.as_str() == "mic" || m.as_str() == "meeting").unwrap_or(true);
                     if is_mic {
                         let rms = (sum_sq / frames as f32).sqrt();
                         let norm_level = ((rms - 0.003).max(0.0) * 14.0).clamp(0.0, 1.0);

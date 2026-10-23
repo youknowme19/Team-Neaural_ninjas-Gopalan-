@@ -3,3 +3,4 @@ pub mod parser;
 pub mod grammar;
 pub mod zerocopy;
 pub mod translator;
+pub mod diarizer;

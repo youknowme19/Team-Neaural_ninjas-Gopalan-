@@ -27,6 +27,8 @@ extern "system" {
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct StreamTextEvent {
+    pub speaker_id: String,
+    pub speaker_label: String,
     pub committed: String,
     pub tentative: String,
     pub full: String,
@@ -102,10 +104,12 @@ fn main() {
                     target_lang_store.clone(),
                     audio_level_store.clone(),
                     transcript_store.clone(),
-                    move |committed, tentative, full| {
+                    move |speaker_id, speaker_label, committed, tentative, full| {
                         let _ = app_handle_mic.emit(
                             "stream-text",
                             StreamTextEvent {
+                                speaker_id,
+                                speaker_label,
                                 committed,
                                 tentative,
                                 full,
@@ -128,13 +132,15 @@ fn main() {
                     audio_level_store.clone(),
                     suggested_win_store.clone(),
                     transcript_store.clone(),
-                    move |committed, tentative| {
+                    move |speaker_id, speaker_label, committed, tentative, full| {
                         let _ = app_handle_loopback.emit(
                             "stream-text",
                             StreamTextEvent {
-                                committed: committed.clone(),
+                                speaker_id,
+                                speaker_label,
+                                committed,
                                 tentative,
-                                full: committed,
+                                full,
                             },
                         );
                     },

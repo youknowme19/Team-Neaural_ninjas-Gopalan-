@@ -36,7 +36,7 @@ interface BroadcastInfo {
 
 interface LiveStatusPayload {
   caption: string;
-  source_mode: string; // "mic" | "app"
+  source_mode: string; // "mic" | "app" | "meeting"
   selected_app: ActiveWindow | null;
   selected_mic?: string | null;
   device_audio_detected: boolean;
@@ -46,9 +46,19 @@ interface LiveStatusPayload {
 }
 
 interface StreamTextEvent {
+  speaker_id?: string;
+  speaker_label?: string;
   committed: string;
   tentative: string;
   full: string;
+}
+
+interface DialogueTurn {
+  speaker_id: string;
+  speaker_label: string;
+  text: string;
+  is_tentative: boolean;
+  timestamp: number;
 }
 
 interface TargetLanguage {
@@ -83,6 +93,36 @@ function compactAppLabel(name: string): string {
   if (/brave/i.test(n)) return 'Brave';
   if (/vlc/i.test(n)) return 'VLC';
   return n.length > 10 ? n.slice(0, 9) + '…' : n;
+}
+
+function getSpeakerBadgeStyle(speaker_id: string) {
+  const id = (speaker_id || '').toLowerCase();
+  if (id === 'you') {
+    return {
+      bg: 'bg-blue-500/15 text-blue-900 border border-blue-400/40',
+      tag: 'You:',
+    };
+  } else if (id === 'user1') {
+    return {
+      bg: 'bg-emerald-500/15 text-emerald-900 border border-emerald-400/40',
+      tag: 'User 1:',
+    };
+  } else if (id === 'user2') {
+    return {
+      bg: 'bg-amber-500/15 text-amber-900 border border-amber-400/40',
+      tag: 'User 2:',
+    };
+  } else if (id === 'user3') {
+    return {
+      bg: 'bg-purple-500/15 text-purple-900 border border-purple-400/40',
+      tag: 'User 3:',
+    };
+  } else {
+    return {
+      bg: 'bg-slate-500/15 text-slate-800 border border-slate-400/40',
+      tag: 'User:',
+    };
+  }
 }
 
 /**
@@ -173,8 +213,9 @@ export const CaptionOverlayView: React.FC = () => {
   const [caption, setCaption] = useState<string>('');
   const [committedText, setCommittedText] = useState<string>('');
   const [tentativeText, setTentativeText] = useState<string>('');
+  const [dialogueTurns, setDialogueTurns] = useState<DialogueTurn[]>([]);
   const [targetLang, setTargetLang] = useState<string>('en');
-  const [sourceMode, setSourceMode] = useState<'mic' | 'app'>('mic');
+  const [sourceMode, setSourceMode] = useState<'mic' | 'app' | 'meeting'>('meeting');
   const [selectedApp, setSelectedApp] = useState<ActiveWindow | null>(null);
   const [selectedMic, setSelectedMic] = useState<string | null>(null);
   const [micsList, setMicsList] = useState<InputMicDevice[]>([]);
@@ -185,7 +226,7 @@ export const CaptionOverlayView: React.FC = () => {
   const [windowsList, setWindowsList] = useState<ActiveWindow[]>([]);
   const [broadcastInfo, setBroadcastInfo] = useState<BroadcastInfo | null>(null);
   const [copiedUrlFeedback, setCopiedUrlFeedback] = useState<boolean>(false);
-  const [pillWidth, setPillWidth] = useState<number>(560);
+  const [pillWidth, setPillWidth] = useState<number>(580);
   const [fontScale, setFontScale] = useState<'sm' | 'md' | 'lg'>('md');
   const [copiedFeedback, setCopiedFeedback] = useState<boolean>(false);
   const [isSpeakingPulse, setIsSpeakingPulse] = useState<boolean>(false);
@@ -193,7 +234,7 @@ export const CaptionOverlayView: React.FC = () => {
 
   const isResizingRef = useRef<boolean>(false);
   const resizeStartXRef = useRef<number>(0);
-  const resizeStartWidthRef = useRef<number>(560);
+  const resizeStartWidthRef = useRef<number>(580);
   const captionScrollRef = useRef<HTMLDivElement | null>(null);
   const pulseTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -201,7 +242,6 @@ export const CaptionOverlayView: React.FC = () => {
     TARGET_LANGUAGES.find((l) => l.code === targetLang) || TARGET_LANGUAGES[0];
   const isExtended = pillWidth >= 680;
 
-  // Smoothly glide caption scroll container to the rightmost pixel edge as words stream in
   useLayoutEffect(() => {
     const el = captionScrollRef.current;
     if (el) {
@@ -210,7 +250,7 @@ export const CaptionOverlayView: React.FC = () => {
         behavior: 'smooth',
       });
     }
-  }, [caption, committedText, tentativeText, pillWidth, fontScale]);
+  }, [caption, committedText, tentativeText, dialogueTurns, pillWidth, fontScale]);
 
   useEffect(() => {
     // 1. Sub-millisecond event listener pushed directly from Rust
@@ -218,14 +258,49 @@ export const CaptionOverlayView: React.FC = () => {
       const full = (event.payload?.full || '').trim();
       const comm = (event.payload?.committed || '').trim();
       const tent = (event.payload?.tentative || '').trim();
-      if (full.length > 0) {
-        setCaption(full);
-        setCommittedText(comm);
-        setTentativeText(tent);
-        setIsSpeakingPulse(true);
-        if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current);
-        pulseTimeoutRef.current = setTimeout(() => setIsSpeakingPulse(false), 750);
-      }
+      const spkId = (event.payload?.speaker_id || 'you').toLowerCase();
+      const spkLabel = event.payload?.speaker_label || (spkId === 'you' ? 'You' : 'User 1');
+
+      const activeText = tent || full || comm;
+      if (!activeText) return;
+
+      setIsSpeakingPulse(true);
+      if (pulseTimeoutRef.current) clearTimeout(pulseTimeoutRef.current);
+      pulseTimeoutRef.current = setTimeout(() => setIsSpeakingPulse(false), 750);
+
+      setCaption(activeText);
+      setCommittedText(comm);
+      setTentativeText(tent);
+
+      // Conversational multi-speaker turn tracking (handles simultaneous clashes!)
+      setDialogueTurns((prev) => {
+        const now = Date.now();
+        const recent = prev.filter((t) => now - t.timestamp < 15000);
+        const lastIdx = recent.length - 1;
+
+        if (lastIdx >= 0 && recent[lastIdx].speaker_id === spkId) {
+          const updated = [...recent];
+          updated[lastIdx] = {
+            ...updated[lastIdx],
+            speaker_label: spkLabel,
+            text: activeText,
+            is_tentative: Boolean(tent),
+            timestamp: now,
+          };
+          return updated;
+        } else {
+          // Different speaker spoke or clash! Append new turn
+          const updated = recent.map((t) => ({ ...t, is_tentative: false }));
+          updated.push({
+            speaker_id: spkId,
+            speaker_label: spkLabel,
+            text: activeText,
+            is_tentative: Boolean(tent),
+            timestamp: now,
+          });
+          return updated.slice(-3);
+        }
+      });
     });
 
     // 2. Fast 75ms status sync
@@ -233,7 +308,9 @@ export const CaptionOverlayView: React.FC = () => {
       try {
         const status = await invoke<LiveStatusPayload>('get_live_status');
         if (status) {
-          setSourceMode(status.source_mode === 'app' ? 'app' : 'mic');
+          if (status.source_mode === 'meeting' || status.source_mode === 'app' || status.source_mode === 'mic') {
+            setSourceMode(status.source_mode);
+          }
           setSelectedApp(status.selected_app || null);
           setSelectedMic(status.selected_mic || null);
           setDeviceAudioDetected(Boolean(status.device_audio_detected));
@@ -332,7 +409,7 @@ export const CaptionOverlayView: React.FC = () => {
 
   const toggleExtendWidth = async (e: React.MouseEvent<HTMLDivElement>) => {
     e.stopPropagation();
-    const nextWidth = pillWidth >= 680 ? 560 : 800;
+    const nextWidth = pillWidth >= 680 ? 580 : 820;
     setPillWidth(nextWidth);
     try {
       await invoke('set_overlay_width', { width: nextWidth, expanded: pickerOpen });
@@ -366,42 +443,31 @@ export const CaptionOverlayView: React.FC = () => {
     setCaption('');
     setCommittedText('');
     setTentativeText('');
+    setDialogueTurns([]);
   };
 
   const handleCopyCaption = async () => {
-    if (!caption) return;
+    const textToCopy = dialogueTurns.length > 0
+      ? dialogueTurns.map((t) => `${t.speaker_label}: ${t.text}`).join('\n')
+      : caption;
+    if (!textToCopy) return;
     try {
-      await navigator.clipboard.writeText(caption);
+      await navigator.clipboard.writeText(textToCopy);
       setCopiedFeedback(true);
       setTimeout(() => setCopiedFeedback(false), 1400);
     } catch (_) {}
   };
 
-  const handleSelectApp = async (win: ActiveWindow) => {
+  const handleSwitchSourceMode = async (mode: 'mic' | 'app' | 'meeting', win: ActiveWindow | null = null) => {
     try {
       handleClearCaption();
       await invoke<LiveStatusPayload>('select_audio_source', {
-        mode: 'app',
+        mode,
         window: win,
-        micDevice: null,
+        micDevice: selectedMic,
       });
-      setSourceMode('app');
+      setSourceMode(mode);
       setSelectedApp(win);
-      await closePicker();
-    } catch (_) {}
-  };
-
-  const handleSwitchToMic = async (micDeviceId: string | null = selectedMic) => {
-    try {
-      handleClearCaption();
-      await invoke<LiveStatusPayload>('select_audio_source', {
-        mode: 'mic',
-        window: null,
-        micDevice: micDeviceId,
-      });
-      setSourceMode('mic');
-      setSelectedApp(null);
-      setSelectedMic(micDeviceId);
       await closePicker();
     } catch (_) {}
   };
@@ -427,40 +493,38 @@ export const CaptionOverlayView: React.FC = () => {
       ? 'text-[17px]'
       : fontScale === 'lg'
       ? 'text-[22px]'
-      : 'text-[19.5px]';
+      : 'text-[19px]';
 
-  // Dynamic context-aware idle text
   const idleCreativeText =
-    targetLang === 'en'
+    sourceMode === 'meeting'
+      ? (targetLang === 'en' ? 'Meeting Mode Active: Listening for You & Others...' : `लाइव मीटिंग अनुवाद → ${currentLangObj.nativeName}...`)
+      : targetLang === 'en'
       ? 'Listening for speech...'
-      : targetLang === 'hi'
-      ? 'लाइव अनुवाद (Hindi)...'
-      : `Listening & Translating → ${currentLangObj.nativeName}...`;
+      : `लाइव अनुवाद → ${currentLangObj.nativeName}...`;
 
-  const activeDisplayText = tentativeText || caption;
-  const hasOverflowLeft = activeDisplayText.length > 28;
+  const isMultiDialogue = dialogueTurns.length >= 2;
 
   return (
-    <div className="w-screen h-screen flex flex-col items-center justify-start bg-transparent select-none px-2 pt-[10px]">
+    <div className="w-screen h-screen flex flex-col items-center justify-start bg-transparent select-none px-2 pt-[8px]">
       {/* Sleek Frosted Glass Live Caption Capsule */}
       <div
         onMouseDown={handlePillMouseDown}
         style={{
           background:
-            'linear-gradient(180deg, rgba(246, 248, 251, 0.92) 0%, rgba(234, 239, 245, 0.88) 100%)',
-          border: '1px solid rgba(255, 255, 255, 0.75)',
+            'linear-gradient(180deg, rgba(246, 248, 251, 0.94) 0%, rgba(234, 239, 245, 0.90) 100%)',
+          border: '1px solid rgba(255, 255, 255, 0.78)',
           boxShadow:
             '0 12px 32px -4px rgba(15, 23, 42, 0.16), 0 4px 12px -2px rgba(15, 23, 42, 0.08), inset 0 1px 1px rgba(255, 255, 255, 0.95)',
           backdropFilter: 'blur(36px) saturate(190%)',
           WebkitBackdropFilter: 'blur(36px) saturate(190%)',
         }}
-        className="group/pill relative w-full h-[60px] rounded-full flex items-center justify-between pl-4 pr-3.5 cursor-grab active:cursor-grabbing overflow-hidden shrink-0"
+        className={`group/pill relative w-full ${isMultiDialogue ? 'h-[72px]' : 'h-[60px]'} rounded-full flex items-center justify-between pl-3.5 pr-3 cursor-grab active:cursor-grabbing overflow-hidden shrink-0 transition-all duration-200`}
       >
-        {/* Left: 60 FPS Smooth Audio Wave Visualizer + Dynamic Live Captioning */}
+        {/* Left: 60 FPS Smooth Audio Wave Visualizer + Multi-Speaker Conversational Turn UI */}
         <div className="flex items-center flex-1 min-w-0 overflow-hidden mr-2 pointer-events-none">
           <SmoothAudioWave level={audioLevel} active={isSpeakingPulse} />
 
-          {!caption && !tentativeText ? (
+          {dialogueTurns.length === 0 ? (
             <div className="flex items-center overflow-hidden">
               <span className="w-[1.5px] h-[23px] bg-[#334155] rounded-full shrink-0 mr-[3px] animate-pulse" />
               <span
@@ -469,51 +533,56 @@ export const CaptionOverlayView: React.FC = () => {
                 {idleCreativeText}
               </span>
             </div>
+          ) : isMultiDialogue ? (
+            /* Multi-Speaker Dialogue View: Clashing & Conversational Turn Taking */
+            <div className="flex flex-col justify-center overflow-hidden w-full space-y-0.5 py-0.5">
+              {dialogueTurns.slice(-2).map((turn, idx) => {
+                const style = getSpeakerBadgeStyle(turn.speaker_id);
+                return (
+                  <div key={turn.speaker_id + idx} className="flex items-center space-x-2 overflow-hidden w-full">
+                    <span className={`px-2 py-0.2 rounded-full text-[10px] font-bold shrink-0 ${style.bg}`}>
+                      {turn.speaker_label}:
+                    </span>
+                    <span className="text-[14.5px] font-medium tracking-[-0.012em] text-[#0f172a] truncate">
+                      {turn.text}
+                    </span>
+                    {turn.is_tentative && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse shrink-0" />
+                    )}
+                  </div>
+                );
+              })}
+            </div>
           ) : (
-            <div className="flex items-center overflow-hidden w-full">
+            /* Single Speaker Dialogue View */
+            <div className="flex items-center overflow-hidden w-full space-x-2">
+              <span className={`px-2 py-0.5 rounded-full text-[11px] font-bold shrink-0 ${getSpeakerBadgeStyle(dialogueTurns[0].speaker_id).bg}`}>
+                {dialogueTurns[0].speaker_label}:
+              </span>
               <div
                 ref={captionScrollRef}
-                style={
-                  hasOverflowLeft
-                    ? {
-                        maskImage:
-                          'linear-gradient(to right, transparent 0px, black 18px, black 100%)',
-                        WebkitMaskImage:
-                          'linear-gradient(to right, transparent 0px, black 18px, black 100%)',
-                      }
-                    : undefined
-                }
                 className="overflow-x-hidden whitespace-nowrap max-w-full"
               >
-                {targetLang === 'en' && committedText && tentativeText ? (
-                  <span className={`${fontSizeClass} tracking-[-0.012em] whitespace-nowrap`}>
-                    <span className="font-normal text-[#0f172a]">{committedText} </span>
-                    <span className="font-normal text-[#64748b] transition-opacity duration-150">
-                      {tentativeText}
-                    </span>
-                  </span>
-                ) : (
-                  <span
-                    className={`${fontSizeClass} font-normal tracking-[-0.012em] text-[#0f172a] whitespace-nowrap`}
-                  >
-                    {activeDisplayText}
-                  </span>
-                )}
+                <span className={`${fontSizeClass} font-normal tracking-[-0.012em] text-[#0f172a]`}>
+                  {dialogueTurns[0].text}
+                </span>
               </div>
-              <span className="w-[2px] h-[23px] bg-[#0f172a] rounded-full shrink-0 ml-[2px] animate-pulse" />
+              {dialogueTurns[0].is_tentative && (
+                <span className="w-[2px] h-[22px] bg-[#0f172a] rounded-full shrink-0 animate-pulse ml-0.5" />
+              )}
             </div>
           )}
         </div>
 
-        {/* Right: Quick Controls Styled as Refined Translucent Frosted Glass Pills */}
+        {/* Right: Controls Styled as Refined Translucent Frosted Glass Pills */}
         <div className="flex items-center shrink-0 space-x-1 mr-1">
-          {/* Quick Copy & Clear buttons (appear subtly on hover when caption is active) */}
-          {(caption || tentativeText) && (
+          {/* Quick Copy & Clear buttons */}
+          {(caption || dialogueTurns.length > 0) && (
             <div className="hidden group-hover/pill:flex items-center space-x-0.5 mr-0.5">
               <button
                 onClick={handleCopyCaption}
                 className="h-[22px] px-1.5 rounded-full bg-black/[0.06] hover:bg-black/[0.12] text-[#334155] flex items-center space-x-1 text-[10px] font-medium transition-colors"
-                title="Copy live caption (Ctrl+C)"
+                title="Copy conversation transcript (Ctrl+C)"
               >
                 {copiedFeedback ? (
                   <Check className="w-2.5 h-2.5 text-emerald-600" />
@@ -524,7 +593,7 @@ export const CaptionOverlayView: React.FC = () => {
               <button
                 onClick={handleClearCaption}
                 className="h-[22px] w-[22px] rounded-full bg-black/[0.06] hover:bg-black/[0.12] text-[#334155] flex items-center justify-center transition-colors"
-                title="Clear current caption"
+                title="Clear current transcript"
               >
                 <RotateCcw className="w-2.5 h-2.5" />
               </button>
@@ -568,57 +637,36 @@ export const CaptionOverlayView: React.FC = () => {
             <span>{currentLangObj.badge}</span>
           </button>
 
-          {/* 2. Audio Source Badge (Mic or App Audio) */}
-          {sourceMode === 'app' && selectedApp ? (
-            <div
-              className="h-[22px] flex items-center bg-black/[0.06] border border-black/[0.08] rounded-full pl-1.5 pr-1 space-x-1"
-              title={`Sharing audio from ${selectedApp.app_name}`}
-            >
-              <button
-                onClick={() =>
-                  pickerOpen && pickerTab === 'source' ? closePicker() : openPicker('source')
-                }
-                className="flex items-center space-x-1 text-[#0f172a] hover:opacity-80"
-                title={`Switch shared app (${selectedApp.app_name})`}
-              >
-                <Volume2 className="w-2.5 h-2.5 text-[#0f172a] animate-pulse shrink-0" />
-                {isExtended && (
-                  <span className="text-[10px] font-medium text-[#0f172a] max-w-[60px] truncate leading-none">
-                    {compactAppLabel(selectedApp.app_name)}
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => handleSwitchToMic(selectedMic)}
-                className="w-3.5 h-3.5 rounded-full bg-black/[0.08] hover:bg-black/[0.16] flex items-center justify-center text-[#0f172a]"
-                title="Stop sharing app audio & return to Mic"
-              >
-                <X className="w-2 h-2" />
-              </button>
-            </div>
-          ) : (
-            <button
-              onClick={() =>
-                pickerOpen && pickerTab === 'source' ? closePicker() : openPicker('source')
-              }
-              className="relative h-[22px] flex items-center space-x-0.5 bg-black/[0.05] hover:bg-black/[0.1] text-[#334155] border border-black/[0.04] px-1.5 rounded-full text-[10px] font-medium transition-colors"
-              title={
-                deviceAudioDetected && suggestedApp
-                  ? `Microphone Active — click to switch to ${suggestedApp.app_name} audio`
-                  : 'Microphone Active — click to switch audio source'
-              }
-            >
-              <Mic className="w-2.5 h-2.5" />
-              {isExtended && <span className="text-[10px] ml-0.5">Mic</span>}
-              <ChevronDown className="w-2.5 h-2.5 opacity-70" />
-              {deviceAudioDetected && (
-                <span
-                  className="absolute -top-0.5 -right-0.5 w-2 h-2 rounded-full bg-amber-500 border border-white"
-                  title="Media audio detected — click to share app audio"
-                />
-              )}
-            </button>
-          )}
+          {/* 2. Source Badge: Meeting Mode (You + Remote Audio) vs Mic vs App */}
+          <button
+            onClick={() =>
+              pickerOpen && pickerTab === 'source' ? closePicker() : openPicker('source')
+            }
+            className={`h-[22px] flex items-center space-x-1 px-2 rounded-full text-[10px] font-semibold transition-all ${
+              sourceMode === 'meeting'
+                ? 'bg-blue-600/15 text-blue-900 border border-blue-500/30'
+                : 'bg-black/[0.05] hover:bg-black/[0.1] text-[#334155] border border-black/[0.04]'
+            }`}
+            title="Click to switch Audio Source (Meeting Mode, Mic, or Browser Audio)"
+          >
+            {sourceMode === 'meeting' ? (
+              <>
+                <Users className="w-2.5 h-2.5 text-blue-700 shrink-0" />
+                <span>Meeting</span>
+              </>
+            ) : sourceMode === 'app' ? (
+              <>
+                <Volume2 className="w-2.5 h-2.5 text-amber-700 shrink-0" />
+                <span>App</span>
+              </>
+            ) : (
+              <>
+                <Mic className="w-2.5 h-2.5 text-slate-700 shrink-0" />
+                <span>Mic</span>
+              </>
+            )}
+            <ChevronDown className="w-2.5 h-2.5 opacity-70 ml-0.5" />
+          </button>
         </div>
 
         {/* Subtle Right-Edge Length Resize Grip */}
@@ -684,7 +732,6 @@ export const CaptionOverlayView: React.FC = () => {
             </div>
 
             <div className="flex items-center space-x-1">
-              {/* Quick Caption Text Size Control (S / M / L) */}
               <div className="flex items-center bg-black/[0.05] rounded-lg p-0.5 text-[10px] font-semibold">
                 {(['sm', 'md', 'lg'] as const).map((sz) => (
                   <button
@@ -807,70 +854,49 @@ export const CaptionOverlayView: React.FC = () => {
               })}
             </div>
           ) : (
-            /* Audio Source List: All Microphones + Active App Audio */
+            /* Audio Source List: Meeting Mode (You + Remote) vs Mic vs App */
             <div className="flex flex-col space-y-1">
-              <div className="px-2 pt-0.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748b] flex items-center justify-between">
-                <span>Microphones ({micsList.length || 1} Connected)</span>
-                <span className="text-[9.5px] font-normal normal-case opacity-80">
-                  Click any mic to switch
-                </span>
-              </div>
-              {micsList.length > 0 ? (
-                micsList.map((mic, idx) => {
-                  const isMicSelected =
-                    sourceMode === 'mic' &&
-                    (selectedMic ? selectedMic === mic.id : mic.is_default);
-                  return (
-                    <button
-                      key={mic.id}
-                      onClick={() => handleSwitchToMic(mic.id)}
-                      className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
-                        isMicSelected
-                          ? 'bg-[#0f172a] text-white font-medium shadow-sm'
-                          : 'hover:bg-black/[0.06] text-[#0f172a]'
-                      }`}
-                    >
-                      <div className="flex items-center space-x-2.5 min-w-0 flex-1 pr-2">
-                        <Mic className="w-4 h-4 shrink-0" />
-                        <span className="truncate font-semibold">
-                          Mic {idx + 1}: {mic.name}
-                        </span>
-                        {mic.is_default && (
-                          <span
-                            className={`text-[10px] px-1.5 py-0.5 rounded-md font-semibold uppercase tracking-wide shrink-0 ${
-                              isMicSelected
-                                ? 'bg-white/20 text-white'
-                                : 'bg-black/[0.08] text-[#475569]'
-                            }`}
-                          >
-                            Default
-                          </span>
-                        )}
-                      </div>
-                      {isMicSelected && <Check className="w-4 h-4 shrink-0" />}
-                    </button>
-                  );
-                })
-              ) : (
-                <button
-                  onClick={() => handleSwitchToMic(null)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
-                    sourceMode === 'mic'
-                      ? 'bg-[#0f172a] text-white font-medium shadow-sm'
-                      : 'hover:bg-black/[0.06] text-[#0f172a]'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2.5 truncate">
-                    <Mic className="w-4 h-4 shrink-0" />
-                    <span>Microphone Only (Your Voice)</span>
+              {/* Primary Meeting Mode Selection */}
+              <button
+                onClick={() => handleSwitchSourceMode('meeting')}
+                className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
+                  sourceMode === 'meeting'
+                    ? 'bg-blue-600 text-white font-medium shadow-sm'
+                    : 'hover:bg-blue-500/10 text-[#0f172a] border border-blue-500/20'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5 truncate">
+                  <Users className="w-4 h-4 shrink-0 text-blue-500" />
+                  <div>
+                    <div className="font-bold">Meeting Mode (You + Meeting Participants)</div>
+                    <div className="text-[11px] opacity-80">Separates You vs Remote Speakers with Zero Clash</div>
                   </div>
-                  {sourceMode === 'mic' && <Check className="w-4 h-4 shrink-0" />}
-                </button>
-              )}
+                </div>
+                {sourceMode === 'meeting' && <Check className="w-4 h-4 shrink-0" />}
+              </button>
+
+              <div className="px-2 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748b]">
+                Or Single Audio Source
+              </div>
+
+              <button
+                onClick={() => handleSwitchSourceMode('mic')}
+                className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-left text-[12.5px] transition-colors ${
+                  sourceMode === 'mic'
+                    ? 'bg-[#0f172a] text-white font-medium shadow-sm'
+                    : 'hover:bg-black/[0.06] text-[#0f172a]'
+                }`}
+              >
+                <div className="flex items-center space-x-2.5 truncate">
+                  <Mic className="w-4 h-4 shrink-0" />
+                  <span>Microphone Only (Only Your Voice)</span>
+                </div>
+                {sourceMode === 'mic' && <Check className="w-4 h-4 shrink-0" />}
+              </button>
 
               {windowsList.length > 0 && (
-                <div className="px-2 pt-1.5 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748b] border-t border-black/[0.08] mt-1">
-                  App / Browser Audio
+                <div className="px-2 pt-1 pb-0.5 text-[10px] font-bold uppercase tracking-wider text-[#64748b] border-t border-black/[0.08] mt-1">
+                  App / Browser Audio Only
                 </div>
               )}
 
@@ -882,8 +908,8 @@ export const CaptionOverlayView: React.FC = () => {
                 return (
                   <button
                     key={`${win.process_id}-${win.window_name}`}
-                    onClick={() => handleSelectApp(win)}
-                    className={`w-full flex items-center justify-between px-3 py-2 rounded-xl text-left text-[13px] transition-colors ${
+                    onClick={() => handleSwitchSourceMode('app', win)}
+                    className={`w-full flex items-center justify-between px-3 py-1.5 rounded-xl text-left text-[12.5px] transition-colors ${
                       isSelected
                         ? 'bg-[#0f172a] text-white font-medium shadow-sm'
                         : 'hover:bg-black/[0.06] text-[#0f172a]'
@@ -897,7 +923,7 @@ export const CaptionOverlayView: React.FC = () => {
                       )}
                       <div className="truncate">
                         <span className="font-semibold">{win.app_name}</span>
-                        <span className="opacity-75 ml-1.5 text-[12px]">— {win.window_name}</span>
+                        <span className="opacity-75 ml-1.5 text-[11.5px]">— {win.window_name}</span>
                       </div>
                     </div>
                     {isSelected && <Check className="w-4 h-4 shrink-0" />}

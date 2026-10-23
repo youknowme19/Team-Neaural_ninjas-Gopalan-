@@ -38,7 +38,7 @@ pub fn select_audio_source(
     window: Option<ActiveWindow>,
     mic_device: Option<String>,
 ) -> Result<LiveStatusPayload, String> {
-    let clean_mode = if mode == "app" { "app".to_string() } else { "mic".to_string() };
+    let clean_mode = if mode == "app" { "app".to_string() } else if mode == "meeting" { "meeting".to_string() } else { "mic".to_string() };
 
     if let Ok(mut m) = state.active_source_mode.lock() {
         *m = clean_mode.clone();
