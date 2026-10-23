@@ -45,6 +45,8 @@ export function App() {
   const [toneMode, setToneMode] = useState<'formal' | 'casual' | 'very-casual'>('casual');
   const [activePlatform, setActivePlatform] = useState<'mac' | 'win'>('mac');
 
+  const [downloadingPlatform, setDownloadingPlatform] = useState<string | null>(null);
+
   const rawSnippet = [
     { text: "So ", isFiller: false },
     { text: "um ", isFiller: true },
@@ -76,6 +78,43 @@ export function App() {
         return prev + 5;
       });
     }, 100);
+  };
+
+  const handleDownload = (platform: 'mac' | 'win' | 'auto') => {
+    const target = platform === 'auto' ? (navigator.userAgent.includes('Mac') ? 'mac' : 'win') : platform;
+    setDownloadingPlatform(target);
+    const fileName = target === 'mac' ? 'LiveSpeak-Edge-macOS-aarch64.dmg' : 'LiveSpeak-Edge-Windows-x64.exe';
+    
+    // Create direct simulated artifact download
+    const blob = new Blob([
+      `LiveSpeak Edge v0.1.0 Standalone Binary Bundle (${target.toUpperCase()})\n` +
+      `Zero-cloud on-device ultra-low-latency transcription engine with whisper.cpp and CoreML/DirectML acceleration.\n` +
+      `https://github.com/youknowme19/Team-Neaural_ninjas-Gopalan-\n`
+    ], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = fileName;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+
+    setTimeout(() => {
+      setDownloadingPlatform(null);
+    }, 2500);
+  };
+
+  const handleModeSwitch = (mode: 'dictation' | 'live-events') => {
+    setActiveMode(mode);
+    if (mode === 'live-events') {
+      const el = document.getElementById('live-events');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+    } else {
+      const el = document.getElementById('dictation');
+      if (el) el.scrollIntoView({ behavior: 'smooth' });
+      else window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
   };
 
   return (
@@ -129,7 +168,7 @@ export function App() {
             boxShadow: 'var(--shadow-sm)'
           }}>
             <button 
-              onClick={() => setActiveMode('dictation')}
+              onClick={() => handleModeSwitch('dictation')}
               style={{ 
                 border: 'none',
                 background: activeMode === 'dictation' ? 'var(--primary-accent)' : 'transparent',
@@ -149,7 +188,7 @@ export function App() {
               Dictation
             </button>
             <button 
-              onClick={() => setActiveMode('live-events')}
+              onClick={() => handleModeSwitch('live-events')}
               style={{ 
                 border: 'none',
                 background: activeMode === 'live-events' ? 'var(--primary-accent)' : 'transparent',
@@ -188,7 +227,7 @@ export function App() {
       </header>
 
       {/* 3. Hero Section */}
-      <main className="container-1200" style={{ paddingTop: '64px', textAlign: 'center' }}>
+      <main id="dictation" className="container-1200" style={{ paddingTop: '64px', textAlign: 'center' }}>
 
 
         {/* Hero Headline with Clean Sans + Serif-Italic Accent */}
@@ -788,7 +827,7 @@ export function App() {
         </section>
 
         {/* Section: How It Works */}
-        <section aria-label="How it works" style={{ marginTop: '128px', textAlign: 'left' }}>
+        <section id="features" aria-label="How it works" style={{ marginTop: '128px', textAlign: 'left' }}>
           {/* Eyebrow & Headline Header */}
           <div style={{ textAlign: 'center', marginBottom: '64px' }}>
             <h2 style={{ 
@@ -1315,7 +1354,7 @@ export function App() {
         </section>
 
         {/* Section: Live Events */}
-        <section aria-label="Live event broadcasting" style={{ marginTop: '144px', textAlign: 'center' }}>
+        <section id="live-events" aria-label="Live event broadcasting" style={{ marginTop: '144px', textAlign: 'center' }}>
           {/* Eyebrow & Headline */}
           <h2 style={{ 
             fontSize: '52px', 
@@ -2168,7 +2207,7 @@ export function App() {
         </section>
 
         {/* Section: Privacy, Stats & Download */}
-        <section aria-label="Privacy and security" style={{ marginTop: '144px', textAlign: 'center' }}>
+        <section id="privacy" aria-label="Privacy and security" style={{ marginTop: '144px', textAlign: 'center' }}>
           <h2 style={{ 
             fontSize: '52px', 
             fontWeight: 800, 
@@ -2374,7 +2413,7 @@ export function App() {
               textAlign: 'left'
             }}>
               {/* macOS Card */}
-              <div className="rounded-card" style={{ 
+              <div id="download-mac" className="rounded-card" style={{ 
                 padding: '36px', 
                 background: '#FFFFFF', 
                 border: '1px solid rgba(124, 58, 237, 0.2)',
@@ -2418,18 +2457,27 @@ export function App() {
                   </ul>
                 </div>
 
-                <a 
-                  href="#download-mac" 
+                <button 
+                  onClick={() => handleDownload('mac')}
                   className="pill-button pill-button-primary"
-                  style={{ width: '100%', padding: '14px', textAlign: 'center' }}
+                  style={{ width: '100%', padding: '14px', textAlign: 'center', border: 'none', cursor: 'pointer' }}
                 >
-                  <Download size={16} />
-                  Download .dmg (Apple Silicon)
-                </a>
+                  {downloadingPlatform === 'mac' ? (
+                    <>
+                      <Check size={16} />
+                      Downloading .dmg...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} />
+                      Download .dmg (Apple Silicon)
+                    </>
+                  )}
+                </button>
               </div>
 
               {/* Windows Card */}
-              <div className="rounded-card" style={{ 
+              <div id="download-win" className="rounded-card" style={{ 
                 padding: '36px', 
                 background: '#FFFFFF', 
                 border: '1px solid var(--border-medium)',
@@ -2473,14 +2521,23 @@ export function App() {
                   </ul>
                 </div>
 
-                <a 
-                  href="#download-win" 
+                <button 
+                  onClick={() => handleDownload('win')}
                   className="pill-button pill-button-secondary"
-                  style={{ width: '100%', padding: '14px', textAlign: 'center' }}
+                  style={{ width: '100%', padding: '14px', textAlign: 'center', cursor: 'pointer' }}
                 >
-                  <Download size={16} />
-                  Download .exe (Windows)
-                </a>
+                  {downloadingPlatform === 'win' ? (
+                    <>
+                      <Check size={16} />
+                      Downloading .exe...
+                    </>
+                  ) : (
+                    <>
+                      <Download size={16} />
+                      Download .exe (Windows)
+                    </>
+                  )}
+                </button>
               </div>
             </div>
           </div>

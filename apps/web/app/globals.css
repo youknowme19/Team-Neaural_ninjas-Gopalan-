@@ -57,6 +57,10 @@
   padding: 0;
 }
 
+html {
+  scroll-behavior: smooth;
+}
+
 html, body {
   background-color: var(--bg-canvas);
   color: var(--text-primary);
