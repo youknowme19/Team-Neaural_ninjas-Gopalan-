@@ -2,6 +2,19 @@ use crate::broadcast::qr::generate_qr_data_url;
 use crate::broadcast::websocket::BroadcastHub;
 use serde::Serialize;
 use std::net::UdpSocket;
+use std::sync::Mutex;
+
+static ACTIVE_TUNNEL_URL: Mutex<Option<String>> = Mutex::new(None);
+
+pub fn set_active_tunnel_url(url: String) {
+    if let Ok(mut lock) = ACTIVE_TUNNEL_URL.lock() {
+        *lock = Some(url);
+    }
+}
+
+pub fn get_active_tunnel_url() -> Option<String> {
+    ACTIVE_TUNNEL_URL.lock().ok().and_then(|lock| lock.clone())
+}
 
 #[derive(Serialize)]
 pub struct BroadcastInfo {
@@ -96,7 +109,9 @@ pub fn get_best_lan_ip() -> String {
 #[tauri::command]
 pub fn get_broadcast_info() -> Result<BroadcastInfo, String> {
     let ip = get_best_lan_ip();
-    let url = format!("http://{}:8080", ip);
+    let lan_url = format!("http://{}:8080", ip);
+    // Use the active public tunnel if available so QR scanning works on ANY phone/Wi-Fi (even with AP isolation)
+    let url = get_active_tunnel_url().unwrap_or(lan_url);
     let qr_data_url = generate_qr_data_url(&url)?;
     let connected_devices = BroadcastHub::global().get_connected_clients();
 

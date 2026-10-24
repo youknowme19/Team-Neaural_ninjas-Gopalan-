@@ -93,6 +93,40 @@ fn main() {
             // 1b. Spawn Live Event Multi-Device QR Broadcast HTTP Server on 0.0.0.0:8080
             livespeak_lib::broadcast::websocket::spawn_live_event_http_server();
 
+            // 1c. Auto-spawn Cloudflare Tunnel so QR Code directly works on any phone/Wi-Fi (bypassing AP isolation)
+            {
+                let bin_clone = bin_dir.clone();
+                std::thread::spawn(move || {
+                    let cloudflared_bin = bin_clone.join("cloudflared.exe");
+                    if cloudflared_bin.exists() {
+                        use std::process::{Command, Stdio};
+                        use std::io::{BufRead, BufReader};
+                        if let Ok(mut child) = Command::new(&cloudflared_bin)
+                            .args(["tunnel", "--url", "http://127.0.0.1:8080"])
+                            .stdout(Stdio::piped())
+                            .stderr(Stdio::piped())
+                            .spawn()
+                        {
+                            if let Some(stderr) = child.stderr.take() {
+                                let reader = BufReader::new(stderr);
+                                for line in reader.lines().flatten() {
+                                    if let Some(idx) = line.find("https://") {
+                                        let candidate = &line[idx..];
+                                        if let Some(end) = candidate.find(".trycloudflare.com") {
+                                            let url = candidate[..end + ".trycloudflare.com".len()].to_string();
+                                            println!("[LiveSpeak] Live Event Direct QR Tunnel Ready: {}", url);
+                                            commands::broadcast::set_active_tunnel_url(url);
+                                            break;
+                                        }
+                                    }
+                                }
+                            }
+                            let _ = child.wait();
+                        }
+                    }
+                });
+            }
+
             // 2. Spawn Native Rust `cpal` Microphone Worker + Handy `SmoothedVad` -> Silero v5.1.2 Neural VAD
             {
                 let app_handle_mic = app.handle().clone();
@@ -208,9 +242,12 @@ fn main() {
                 }
             }
             tauri::WindowEvent::Destroyed => {
-                // Clean up background whisper-server when the app is explicitly closed
+                // Clean up background whisper-server and tunnel when the app is explicitly closed
                 let _ = std::process::Command::new("taskkill")
                     .args(["/F", "/IM", "whisper-server.exe"])
+                    .output();
+                let _ = std::process::Command::new("taskkill")
+                    .args(["/F", "/IM", "cloudflared.exe"])
                     .output();
             }
             _ => {}
