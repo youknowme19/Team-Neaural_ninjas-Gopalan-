@@ -198,42 +198,7 @@ struct ScreenCaptureBridge {
     }
 
     static func listActiveWindows() async {
-        do {
-            let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: true)
-            var results: [WindowInfo] = []
-
-            for window in content.windows {
-                guard let app = window.owningApplication else { continue }
-                let title = window.title ?? ""
-                let appName = app.applicationName
-
-                let displayName = title.isEmpty ? appName : "\(appName) - \(title)"
-                if !displayName.isEmpty && window.frame.width > 50 && window.frame.height > 50 {
-                    results.append(WindowInfo(
-                        window_name: displayName,
-                        process_id: Int(app.processID),
-                        app_name: appName
-                    ))
-                }
-            }
-
-            var seen = Set<String>()
-            let uniqueResults = results.filter { item in
-                let key = "\(item.process_id)-\(item.window_name)"
-                if seen.contains(key) { return false }
-                seen.insert(key)
-                return true
-            }
-
-            let encoder = JSONEncoder()
-            encoder.outputFormatting = .prettyPrinted
-            let jsonData = try encoder.encode(uniqueResults)
-            if let jsonString = String(data: jsonData, encoding: .utf8) {
-                print(jsonString)
-            }
-        } catch {
-            listWindowsCoreGraphicsFallback()
-        }
+        listWindowsCoreGraphicsFallback()
     }
 
     static func listWindowsCoreGraphicsFallback() {
@@ -274,6 +239,19 @@ struct ScreenCaptureBridge {
     }
 
     static func startAudioCapture(targetPid: Int?) async {
+        if #available(macOS 10.15, *) {
+            if !CGPreflightScreenCaptureAccess() {
+                fputs("ScreenCaptureBridge: Waiting for Screen & System Audio Recording permission in System Settings...\n", stderr)
+                if #available(macOS 11.0, *) {
+                    CGRequestScreenCaptureAccess()
+                }
+                while !CGPreflightScreenCaptureAccess() {
+                    try? await Task.sleep(nanoseconds: 2_000_000_000)
+                }
+                fputs("ScreenCaptureBridge: Screen recording permission granted!\n", stderr)
+            }
+        }
+
         do {
             let content = try await SCShareableContent.excludingDesktopWindows(true, onScreenWindowsOnly: false)
             guard let display = content.displays.first else {
@@ -313,6 +291,7 @@ struct ScreenCaptureBridge {
             }
         } catch {
             fputs("ScreenCaptureBridge error: \(error.localizedDescription)\n", stderr)
+            try? await Task.sleep(nanoseconds: 10_000_000_000)
             exit(1)
         }
     }

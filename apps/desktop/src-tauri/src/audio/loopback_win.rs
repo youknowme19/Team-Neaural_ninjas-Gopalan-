@@ -275,6 +275,7 @@ impl WindowsLoopbackCapture {
                         cmd.stderr(Stdio::null());
 
                         if let Ok(mut child) = cmd.spawn() {
+                            let started_at = Instant::now();
                             if let Some(mut stdout) = child.stdout.take() {
                                 let mut buf = [0u8; 4096];
                                 loop {
@@ -323,8 +324,15 @@ impl WindowsLoopbackCapture {
                                 }
                             }
                             let _ = child.kill();
+                            let elapsed = started_at.elapsed();
+                            if elapsed < Duration::from_secs(3) {
+                                std::thread::sleep(Duration::from_secs(6));
+                            } else {
+                                std::thread::sleep(Duration::from_millis(500));
+                            }
+                        } else {
+                            std::thread::sleep(Duration::from_secs(5));
                         }
-                        std::thread::sleep(Duration::from_millis(300));
                     }
                 }
             });
