@@ -134,7 +134,7 @@ pub fn spawn_translation_stage(
                 last_live_translated.clear();
                 last_live_english.clear();
                 last_translated_word_count = 0;
-                BroadcastHub::global().reset();
+                // BroadcastHub preserved
                 continue;
             }
 

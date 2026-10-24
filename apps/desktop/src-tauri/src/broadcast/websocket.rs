@@ -73,7 +73,7 @@ impl BroadcastHub {
         if let Ok(mut guard) = self.source_state.lock() {
             if is_final {
                 guard.committed_clauses.push_back(trimmed.to_string());
-                while guard.committed_clauses.len() > 3 {
+                while guard.committed_clauses.len() > 5 {
                     guard.committed_clauses.pop_front();
                 }
                 guard.tentative_clause.clear();
@@ -561,10 +561,8 @@ const LIVE_EVENT_AUDIENCE_HTML: &str = r#"<!DOCTYPE html>
             placeholderText.style.display = 'none';
             committedSpan.textContent = comm ? comm + ' ' : '';
             tentativeSpan.textContent = tent;
-          } else {
+          } else if (!committedSpan.textContent) {
             placeholderText.style.display = 'inline';
-            committedSpan.textContent = '';
-            tentativeSpan.textContent = '';
           }
         }
       } catch (err) {

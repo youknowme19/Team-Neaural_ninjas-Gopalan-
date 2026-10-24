@@ -153,6 +153,7 @@ impl WindowsLoopbackCapture {
                 let mut samples_since_decode: usize = 0;
                 let mut was_in_speech = false;
 
+                let mut was_active_mode = true;
                 while let Ok(samples_16k) = pcm_rx.recv() {
                     let is_app_mode = mode_vad
                         .lock()
@@ -160,18 +161,23 @@ impl WindowsLoopbackCapture {
                         .unwrap_or(false);
 
                     if !is_app_mode {
-                        frame_accum.clear();
-                        current_utterance.clear();
-                        samples_since_decode = 0;
-                        was_in_speech = false;
-                        vad.reset();
-                        let (lock, cvar) = &*mailbox_vad;
-                        if let Ok(mut mb) = lock.lock() {
-                            mb.reset_history = true;
-                            cvar.notify_one();
+                        if was_active_mode {
+                            was_active_mode = false;
+                            frame_accum.clear();
+                            current_utterance.clear();
+                            samples_since_decode = 0;
+                            was_in_speech = false;
+                            vad.reset();
+                            let (lock, cvar) = &*mailbox_vad;
+                            if let Ok(mut mb) = lock.lock() {
+                                mb.reset_history = true;
+                                cvar.notify_one();
+                            }
                         }
+                        std::thread::sleep(std::time::Duration::from_millis(15));
                         continue;
                     }
+                    was_active_mode = true;
 
                     frame_accum.extend_from_slice(&samples_16k);
 
